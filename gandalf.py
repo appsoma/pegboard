@@ -83,6 +83,9 @@ class Zookeeper(KeyManager):
 		return self.zk.get(key)[0] 
 	def set(self,key,data):
 		self.zk.set(key, data)
+	@property
+	def hosts(self):
+		return self._hosts
 
 """
 HAPROXY management
@@ -276,7 +279,7 @@ class CommandManager:
 		shutil.copyfile(script,script_path)
 		os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-		Cron.createCronJob(script,cls._cronContent(script_path))
+		Cron.createCronJob(script,cls._cronContent(script_path,kv))
 
 	@classmethod
 	def update(cls,kv,script_dir,script):
@@ -291,8 +294,11 @@ class CommandManager:
 		Haproxy.restart()
 
 	@classmethod
-	def _cronContent(cls,script_path):
-		return "* * * * * root python "+script_path+" update >>/tmp/haproxycron.log 2>&1\n"
+	def _cronContent(cls,script_path,kv):
+		zookeeper = ""
+		if type(kv) == Zookeeper:
+			zookeeper = " --zookeeper "+kv.hosts
+		return "* * * * * root python "+script_path+zookeeper+" update >>/tmp/haproxycron.log 2>&1\n"
 
 if __name__ == "__main__":
 	script_dir = "/usr/local/bin/"+name+"-dir/"
