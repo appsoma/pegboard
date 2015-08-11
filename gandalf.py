@@ -280,7 +280,7 @@ class CommandManager:
 		shutil.copyfile(script,script_path)
 		os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-		Cron.createCronJob(script,cls._cronContent(script_path,kv))
+		Cron.createCronJob("gandalf",cls._cronContent(script_path,kv))
 
 	@classmethod
 	def update(cls,kv,script_dir,script):
