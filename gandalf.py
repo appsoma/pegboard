@@ -79,6 +79,7 @@ class Zookeeper(KeyManager):
 	def __init__(self,hosts): 
 		self._hosts = hosts
 		self.zk = KazooClient(hosts=hosts)
+		self.zk.start()
 	def get(self,key):
 		return self.zk.get(key)[0] 
 	def set(self,key,data):
