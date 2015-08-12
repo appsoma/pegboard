@@ -80,10 +80,22 @@ class Zookeeper(KeyManager):
 		self._hosts = hosts
 		self.zk = KazooClient(hosts=hosts)
 		self.zk.start()
-	def get(self,key):
-		return self.zk.get(key)[0] 
-	def set(self,key,data):
-		self.zk.set(key, data)
+        def get(self,key):
+                result = self.zk.get(key)[0]
+                if result == "":
+                        result = []
+                        children = self.zk.get_children(key)
+                        for i in children:
+                                result.append({'name': i, 'value': self.zk.get(os.path.join(key, i))[0]} )
+                        return result
+                else:
+                        return self.zk.get(key)[0]
+        def set(self,key,data):
+                try:
+                        self.zk.set(key, data.encode('utf-8'))
+                except Exception as e:
+                        self.zk.create(key, data.encode('utf-8'))
+
 	@property
 	def hosts(self):
 		return self._hosts
