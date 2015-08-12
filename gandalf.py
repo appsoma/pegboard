@@ -311,7 +311,7 @@ class CommandManager:
 		zookeeper = ""
 		if type(kv) == Zookeeper:
 			zookeeper = " --zookeeper "+kv.hosts
-		return "* * * * * root python "+script_path+zookeeper+" update >>/tmp/haproxycron.log 2>&1\n"
+		return "* * * * * root python "+script_path+zookeeper+" update >>/var/log/gandalf-cron.log 2>&1\n"
 
 if __name__ == "__main__":
 	script_dir = "/usr/local/bin/"+name+"-dir/"
