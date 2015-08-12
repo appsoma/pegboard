@@ -4,7 +4,7 @@ A bridge between Marathon and HAProxy using Zookeeper or etcd to store service c
 
 ### Prerequisites
 
-* Install HAProxy and an '/etc/haproxy/haproxy.cfg' file exists.
+* Install HAProxy and an `/etc/haproxy/haproxy.cfg` file exists.
 * Zookeeper or etcd configured and working.
 * Before running, create paths (in Zookeeper or etcd):
     * `/internals`
