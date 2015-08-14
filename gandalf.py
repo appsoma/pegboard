@@ -79,10 +79,23 @@ class Zookeeper(KeyManager):
 	def __init__(self,hosts): 
 		self._hosts = hosts
 		self.zk = KazooClient(hosts=hosts)
-	def get(self,key):
-		return self.zk.get(key)[0] 
-	def set(self,key,data):
-		self.zk.set(key, data)
+		self.zk.start()
+        def get(self,key):
+                result = self.zk.get(key)[0]
+                if result == "":
+                        result = []
+                        children = self.zk.get_children(key)
+                        for i in children:
+                                result.append({'name': i, 'value': self.zk.get(os.path.join(key, i))[0]} )
+                        return result
+                else:
+                        return self.zk.get(key)[0]
+        def set(self,key,data):
+                try:
+                        self.zk.set(key, data.encode('utf-8'))
+                except Exception as e:
+                        self.zk.create(key, data.encode('utf-8'))
+
 	@property
 	def hosts(self):
 		return self._hosts
@@ -171,7 +184,7 @@ class Bridge:
 			response = urllib2.urlopen(req)
 			marathon_apps = json.loads(response.read())["apps"]
 			for app in marathon_apps:
-				app_name = app["id"] if app_name[0] != "/" else app["id"][1:]
+				app_name = app["id"] if app["id"][0] != "/" else app["id"][1:]
 
 				http_ports = []
 				if "HAPROXY_HTTP" in app["env"]:
@@ -184,7 +197,7 @@ class Bridge:
 					if i in http_ports and app_name not in http_apps: 
 						http_apps[app_name] = {
 							"strip_path": False,
-							"url": app_name+self._kv.get(subnet_dns)["node"]["value"],
+							"url": app_name+self._kv.get(KeyManager.subnet_dns),
 							"app_name": app_name
 						}
 
@@ -208,9 +221,9 @@ class Bridge:
 		content = []
 		
 		for app_name,app in apps.items():
-			server_config = self_kv.get(config_port_template).replace("$app_name",app["app_name"]).replace("$service_port",app["service_port"]).split("\n")
-			for i in range(len(servers)):
-				server = servers[i]
+			server_config = self._kv.get(KeyManager.config_port_template).replace("$app_name",app["app_name"]).replace("$service_port",app["service_port"]).split("\n")
+			for i in range(len(app["servers"])):
+				server = app["servers"][i]
 				if server.strip() == "": continue
 				server_config.append("  server "+app_name+"-"+str(i)+" "+server+" check")
 			
@@ -279,7 +292,7 @@ class CommandManager:
 		shutil.copyfile(script,script_path)
 		os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-		Cron.createCronJob(script,cls._cronContent(script_path,kv))
+		Cron.createCronJob("gandalf",cls._cronContent(script_path,kv))
 
 	@classmethod
 	def update(cls,kv,script_dir,script):
@@ -298,7 +311,7 @@ class CommandManager:
 		zookeeper = ""
 		if type(kv) == Zookeeper:
 			zookeeper = " --zookeeper "+kv.hosts
-		return "* * * * * root python "+script_path+zookeeper+" update >>/tmp/haproxycron.log 2>&1\n"
+		return "* * * * * root python "+script_path+zookeeper+" update >>/var/log/gandalf-cron.log 2>&1\n"
 
 if __name__ == "__main__":
 	script_dir = "/usr/local/bin/"+name+"-dir/"
