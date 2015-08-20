@@ -2,19 +2,220 @@
 import sys
 import stat
 import os
+import re
+import cgi
 import shutil
 import subprocess
+import urllib
 import urllib
 import urllib2
 import json
 import socket
 import random
 import argparse
+import signal
+import time
+import atexit
 from abc import ABCMeta,abstractmethod
 from kazoo.client import KazooClient
+from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
 script = sys.argv[0].split("/")[-1]
 name = ".".join(script.split(".")[:-1])
+
+"""
+Linux Daemon, based on https://github.com/serverdensity/python-daemon/blob/master/daemon.py
+"""
+
+class Daemon(object):
+	"""
+	A generic daemon class.
+	Usage: subclass the Daemon class and override the run() method
+	"""
+	def __init__(self, pidfile, stdin=os.devnull,
+				 stdout=os.devnull, stderr=os.devnull,
+				 home_dir='.', umask=022, verbose=1):
+		self.stdin = stdin
+		self.stdout = stdout
+		self.stderr = stderr
+		self.pidfile = pidfile
+		self.home_dir = home_dir
+		self.verbose = verbose
+		self.umask = umask
+		self.daemon_alive = True
+
+	def daemonize(self):
+		"""
+		Do the UNIX double-fork magic, see Stevens' "Advanced
+		Programming in the UNIX Environment" for details (ISBN 0201563177)
+		http://www.erlenstar.demon.co.uk/unix/faq_2.html#SEC16
+		"""
+		try:
+			pid = os.fork()
+			if pid > 0:
+				# Exit first parent
+				sys.exit(0)
+		except OSError, e:
+			sys.stderr.write(
+				"fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
+			sys.exit(1)
+
+		# Decouple from parent environment
+		os.chdir(self.home_dir)
+		os.setsid()
+		os.umask(self.umask)
+
+		# Do second fork
+		try:
+			pid = os.fork()
+			if pid > 0:
+				# Exit from second parent
+				sys.exit(0)
+		except OSError, e:
+			sys.stderr.write(
+				"fork #2 failed: %d (%s)\n" % (e.errno, e.strerror))
+			sys.exit(1)
+
+		if sys.platform != 'darwin':  # This block breaks on OS X
+			# Redirect standard file descriptors
+			sys.stdout.flush()
+			sys.stderr.flush()
+			si = file(self.stdin, 'r')
+			so = file(self.stdout, 'a+')
+			if self.stderr:
+				se = file(self.stderr, 'a+', 0)
+			else:
+				se = so
+			os.dup2(si.fileno(), sys.stdin.fileno())
+			os.dup2(so.fileno(), sys.stdout.fileno())
+			os.dup2(se.fileno(), sys.stderr.fileno())
+
+		def sigtermhandler(signum, frame):
+			self.daemon_alive = False
+			sys.exit()
+
+		signal.signal(signal.SIGTERM, sigtermhandler)
+		signal.signal(signal.SIGINT, sigtermhandler)
+
+		if self.verbose >= 1:
+			print "Started"
+
+		# Write pidfile
+		atexit.register(
+			self.delpid)  # Make sure pid file is removed if we quit
+		pid = str(os.getpid())
+		file(self.pidfile, 'w+').write("%s\n" % pid)
+
+	def delpid(self):
+		os.remove(self.pidfile)
+
+	def start(self, *args, **kwargs):
+		"""
+		Start the daemon
+		"""
+
+		if self.verbose >= 1:
+			print "Starting..."
+
+		# Check for a pidfile to see if the daemon already runs
+		try:
+			pf = file(self.pidfile, 'r')
+			pid = int(pf.read().strip())
+			pf.close()
+		except IOError:
+			pid = None
+		except SystemExit:
+			pid = None
+
+		if pid:
+			message = "pidfile %s already exists. Is it already running?\n"
+			sys.stderr.write(message % self.pidfile)
+			sys.exit(1)
+
+		# Start the daemon
+		self.daemonize()
+		self.run(*args, **kwargs)
+
+	def stop(self):
+		"""
+		Stop the daemon
+		"""
+
+		if self.verbose >= 1:
+			print "Stopping..."
+
+		# Get the pid from the pidfile
+		pid = self.get_pid()
+
+		if not pid:
+			message = "pidfile %s does not exist. Not running?\n"
+			sys.stderr.write(message % self.pidfile)
+
+			# Just to be sure. A ValueError might occur if the PID file is
+			# empty but does actually exist
+			if os.path.exists(self.pidfile):
+				os.remove(self.pidfile)
+
+			return  # Not an error in a restart
+
+		# Try killing the daemon process
+		try:
+			i = 0
+			while 1:
+				os.kill(pid, signal.SIGTERM)
+				time.sleep(0.1)
+				i = i + 1
+				if i % 10 == 0:
+					os.kill(pid, signal.SIGHUP)
+		except OSError, err:
+			err = str(err)
+			if err.find("No such process") > 0:
+				if os.path.exists(self.pidfile):
+					os.remove(self.pidfile)
+			else:
+				print str(err)
+				sys.exit(1)
+
+		if self.verbose >= 1:
+			print "Stopped"
+
+	def restart(self):
+		"""
+		Restart the daemon
+		"""
+		self.stop()
+		self.start()
+
+	def get_pid(self):
+		try:
+			pf = file(self.pidfile, 'r')
+			pid = int(pf.read().strip())
+			pf.close()
+		except IOError:
+			pid = None
+		except SystemExit:
+			pid = None
+		return pid
+
+	def is_running(self):
+		pid = self.get_pid()
+
+		if pid is None:
+			print 'Process is stopped'
+		elif os.path.exists('/proc/%d' % pid):
+			print 'Process (pid %d) is running...' % pid
+		else:
+			print 'Process (pid %d) is killed' % pid
+
+		return pid and os.path.exists('/proc/%d' % pid)
+
+	def run(self):
+		"""
+		You should override this method when you subclass Daemon.
+		It will be called after the process has been
+		daemonized by start() or restart().
+		"""
+		raise NotImplementedError
 
 """
 Port Management
@@ -80,21 +281,21 @@ class Zookeeper(KeyManager):
 		self._hosts = hosts
 		self.zk = KazooClient(hosts=hosts)
 		self.zk.start()
-        def get(self,key):
-                result = self.zk.get(key)[0]
-                if result == "":
-                        result = []
-                        children = self.zk.get_children(key)
-                        for i in children:
-                                result.append({'name': i, 'value': self.zk.get(os.path.join(key, i))[0]} )
-                        return result
-                else:
-                        return self.zk.get(key)[0]
-        def set(self,key,data):
-                try:
-                        self.zk.set(key, data.encode('utf-8'))
-                except Exception as e:
-                        self.zk.create(key, data.encode('utf-8'))
+	def get(self,key):
+		result = self.zk.get(key)[0]
+		if result == "":
+			result = []
+			children = self.zk.get_children(key)
+			for i in children:
+				result.append({'name': i, 'value': self.zk.get(os.path.join(key, i))[0]} )
+			return result
+		else:
+			return self.zk.get(key)[0]
+	def set(self,key,data):
+		try:
+			self.zk.set(key, data.encode('utf-8'))
+		except Exception as e:
+			self.zk.create(key, data.encode('utf-8'))
 
 	@property
 	def hosts(self):
@@ -162,6 +363,33 @@ class Bridge:
 	def __init__(self,keymanager):
 		self._kv = keymanager
 		self.portManager = PortManagement()
+
+	@property
+	def kv(self):
+		return self.kv
+
+	def addStandaloneApp(self,app_name,url,service_port,servers):
+		app_path = KeyManager.extra_services_directory + "/" + app_name
+		self._kv.set(app_path, json.dumps({
+			"app_name": app_name,
+			"url": url,
+			"service_port": service_port,
+			"servers": servers
+		}))
+
+	def getApp(self,app_name):
+		app = None
+		try:
+			app = self._kv.get(app_name)
+		except:
+			masters = self._kv.get(KeyManager.cronjob_conf_file).split("\n")
+			for master in masters:
+				req = urllib2.Request("http://"+master+"/v2/apps/"+app_name+"?embed=apps.tasks")
+				responce = json.loads(urllib2.urlopen(req).read())["app"]
+				if "app" in responce:
+					return response["app"]
+
+		return app
 
 	def generateConfigContent(self):
 		masters = self._kv.get(KeyManager.cronjob_conf_file).split("\n")
@@ -248,57 +476,212 @@ class Bridge:
 			else: frontend = "   acl "+app_name+" hdr(host) -i "+app["url"]
 
 			acls.append(frontend)
-			use_backends.append("use_backend srvs_"+app_name+"    if "+app_name)
+			use_backends.append("use_backend srvs_"+app_name+"	if "+app_name)
 			servers = []
 			for s in range(len(app["servers"])):
 				server = app["servers"][s]
 				if server.strip() == "": continue
 				servers.append("   server "+app_name+"-host"+str(s)+" "+server)
 			tmp_backend = backend_template.replace("$app_name",app_name).replace("$servers","\n".join(servers))
-	                if (app["url"][0] == "/") and app["strip_path"]:
-				tmp_backend = tmp_backend.replace("$replace_req", "reqrep ^([^\ ]*\ /)"+app["url"][1:]+'[/]?(.*)     \\1\\2')
-                	else:
-        	                tmp_backend = tmp_backend.replace("$replace_req", "")
-	                backends += tmp_backend.split("\n")
+					if (app["url"][0] == "/") and app["strip_path"]:
+				tmp_backend = tmp_backend.replace("$replace_req", "reqrep ^([^\ ]*\ /)"+app["url"][1:]+'[/]?(.*)	 \\1\\2')
+					else:
+							tmp_backend = tmp_backend.replace("$replace_req", "")
+					backends += tmp_backend.split("\n")
 			self._saveEndpoints(app_name,app["url"],app["url"])
 	
 		apps = frontends.replace("$acls","\n".join(acls)).replace("$use_backends","\n".join(use_backends)).split("\n") + backends
 		return apps
+
+	def getExternal(self,app_name):
+		return self._kv.get(os.path.join(KeyManager.backends_directory,app_name),backend)
+
+	def getInternal(self,app_name):
+		return self._kv.get(os.path.join(KeyManager.externals_directory,app_name),external)
 
 	def _saveEndpoints(self,app_name,backend,external):
 		self._kv.set(os.path.join(KeyManager.backends_directory,app_name),backend)
 		self._kv.set(os.path.join(KeyManager.externals_directory,app_name),external)
 
 """
+HTTP server deamon
+"""
+
+class HttpRouter:
+	@property
+	def bridge(self):
+		return self._bridge
+
+	@bridge.setter
+	def bridge(self,bridge):
+		self._bridge = bridge
+
+	# GET /internals/:app
+	def get_internal(self,path,headers,rfile):
+		app_name = path.path.split("/")[1]
+		return self._bridge.getInternal(app_name)
+	
+	# GET /exteransl/:app
+	def get_external(self,path,headers,rfile):
+		app_name = path.path.split("/")[1]
+		return self._bridge.getExternal(app_name)
+	
+	# GET /apps/:app
+	def get_app(self,path,headers,rfile):
+		app_name = path.path.split("/")[1]
+		app = self._bridge.getApp(app_name)
+		if not app:
+			app = { "error": app_name+"Doesn't exist" }
+		return app
+
+	# POST /apps/:app
+	def post_app(self,path,headers,rfile):
+		form = cgi.FieldStorage(
+			fp=rfile,
+			headers=headers,
+			environ={'REQUEST_METHOD':'POST','CONTENT_TYPE':headers['Content-Type']})
+		)
+
+		if app_name not in form or 
+			url not in form or
+			service_port not in form or
+			servers not in form:
+			return { "Error": "You should post app_name, url, service_port and servers values" }
+
+		self._bridge.addStandaloneApp(app_name,url,service_port,servers)
+		return { "success": True }
+	
+
+class HttpHandler(BaseHTTPRequestHandler):
+	routes = {
+		'GET /internals/[^\/]+$': 'get_internal',
+		'GET /externals/[^\/]+$': 'get_external',
+
+		# apps api
+		'GET /app/[^\/]+$': 'get_app',
+		'POST /app$': 'add_app'
+	}
+	router = HttpRouter()
+
+	def doCommand(self, requestType):
+		def search(dictionary, path):
+			result = []
+			for key in dictionary:
+				if re.search(key,path):
+					return key
+			return False
+		try:
+			path = urllib.unquote(self.path)
+			parsed_path = urlparse.urlparse(self.path)
+			route_name = search(HttpHandler.routes,requestType + " " + path)
+			if route_name:
+				reply = getattr(HttpHandler.router,HttpHandler.routes[route_name])(parsed_path,self.headers,self.rfile)
+				self.send_response(200)
+				replyStr = json.dumps(reply)
+				self.send_header("Content-type", "application/json")
+				self.send_header("Content-length", str(len(replyStr)))
+				self.send_header("Access-Control-Allow-Origin", "*")
+				self.end_headers()
+				self.wfile.write(replyStr)
+			else:
+				self.send_error(404, "Command not found")
+		except Exception as e:
+			self.send_error(403, "Failed to process command")
+
+	def do_HEAD(self):
+		self.doCommand("HEAD")
+
+	def do_GET(self):
+		self.doCommand("GET")
+
+	def do_DELETE(self):
+		self.doCommand("DELETE")
+
+	def do_POST(self):
+		self.doCommand("POST")
+
+	def do_PUT(self):
+		self.doCommand("PUT")
+
+	def do_OPTIONS(self):
+		self.send_response(200)
+		self.send_header('Allow', 'GET, DELETE, POST, PUT, HEAD, OPTIONS')
+		self.send_header('Access-Control-Allow-Methods', 'GET, DELETE, POST, PUT, HEAD, OPTIONS')
+		self.send_header('Access-Control-Allow-Origin', '*')
+		self.send_header('Access-Control-Allow-Headers', 'X-Request, X-Requested-With')
+		self.send_header('Content-Length', '0')
+		self.end_headers()
+
+	def log_message(self,format,*args):
+		# trace here to see all the http
+		return
+
+class HTTPServerDaemon(Daemon):
+	def run(self,bridge,port):
+		# ACB: Ugly as hell, but can't think a better way
+		HttpHandler.router.bridge = bridge
+		self._server = HTTPServer(('localhost', port), HttpHandler)
+		self._server.serve_forever()
+	def stop(self):
+		self._server.shutdown()
+		super(Daemon,self).stop()
+
+"""
+Bridge Daemon
+"""
+
+class BridgeDaemon(Daemon):
+	def run(self,bridge,http_pid_file,port):
+		self._http_server = HTTPServerDaemon()
+		self._http_server.start(bridge,port)
+		while True:
+			commandManager.update()
+			time.sleep(5)
+	def stop(self):
+		self._http_server.stop()
+		super(Daemon,self).stop()
+
+"""
 Command manager
 """
 
 class CommandManager:
-	@classmethod
-	def doCommand(cls,command,*args):
-		method = getattr(cls,command)
+	def __init__(self,bridge,args):
+		self._bridge = bridge
+		self._args = args
+
+	@property
+	def args(self):
+		return self.args
+
+	def doCommand(self,command,*args):
+		method = getattr(self,command)
 		if not method:
 			raise ValueError("Command "+command+" doesn't exists")
 
-		method(*args)
+		return method(*args)
 
-	@classmethod
-	def install(cls,kv,script_dir,script):
-		script_path = script_dir + script
+	def start(self):
+		daemon = BridgeDaemon(self._args.pid_file)
+		daemon.start(self._bridge,self._args.http_pid_file,self._args.port)
+
+	def stop(self):
+		daemon = BridgeDaemon(self._args.pid_file)
+		daemon.stop()
+
+	def install(self):
+		script_path = self._args.installation_folder + script
 		try:
-			os.makedirs(script_dir)
+			os.makedirs(self._args.installation_folder)
 		except OSError as e: 
 			if(e.errno!=17): raise e
 		shutil.copyfile(script,script_path)
 		os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-		Cron.createCronJob("gandalf",cls._cronContent(script_path,kv))
+		Cron.createCronJob("gandalf",self._cronContent(script_path))
 
-	@classmethod
-	def update(cls,kv,script_dir,script):
-		bridge = Bridge(kv)
-
-		new_content = bridge.generateConfigContent()
+	def update(self):
+		new_content = self._bridge.generateConfigContent()
 		old_content = Haproxy.readConfig()
 
 		if new_content == old_content: return
@@ -306,28 +689,54 @@ class CommandManager:
 		Haproxy.writeConfig(new_content)
 		Haproxy.restart()
 
-	@classmethod
-	def _cronContent(cls,script_path,kv):
+	def internal(self):
+		if not self.args.app_name:
+			raise ValueError("You need to specify app name: --app-name name")
+		return self._bridge.getInternal(self._args.app_name)
+
+	def external(self):
+		if not self.args.app_name:
+			raise ValueError("You need to specify app name: --app-name name")
+		return self._bridge.getExternal(self._args.app_name)
+
+	def _cronContent(self,script_path):
 		zookeeper = ""
-		if type(kv) == Zookeeper:
-			zookeeper = " --zookeeper "+kv.hosts
+		if type(self._bridge.kv) == Zookeeper:
+			zookeeper = " --zookeeper "+self._bridge.kv.hosts
 		return "* * * * * root python "+script_path+zookeeper+" update >>/var/log/gandalf-cron.log 2>&1\n"
 
+def doSIGINT(sig, stack):
+	sys.exit(sig)
+
+def doSIGTERM(sig, stack):
+	sys.exit(sig)
+
 if __name__ == "__main__":
-	script_dir = "/usr/local/bin/"+name+"-dir/"
+	script_dir = "/usr/local/bin/"
 
 	parser = argparse.ArgumentParser(description='Bridge between marathon and haproxy')
 	parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts")
-	parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir)
-	parser.add_argument('action', choices=['update','install'])
+	parser.add_argument("--pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts", nargs=1)
+	parser.add_argument("--http-pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts", nargs=1)
+	parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir, nargs=1)
+	parser.add_argument("--app-name", help="Choose another installation folder, default "+script_dir, nargs=1)
+	parser.add_argument('action', choices=['update','install','start','stop','internal','external'])
 	args = parser.parse_args()
 
-	if args.installation_folder:
-		script_dir = args.installation_folder
+	if not args.installation_folder:
+		args.installation_folder = script_dir
 
 	if args.zookeeper:
 		kv = Zookeeper(args.zookeeper)
 	else:
 		kv = Etcd()
 
-	CommandManager.doCommand(args.action,kv,script_dir,script)
+	if not args.pid_file:
+		args.pid_file = "/var/run/gandalf.pid"
+
+	if not args.http_pid_file:
+		args.http_pid_file = "/var/run/gandalf_server.pid"
+
+	commandManager = CommandManager(Bridge(kv),args)
+
+	print commandManager.doCommand(args.action)
