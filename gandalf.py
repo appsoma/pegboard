@@ -518,13 +518,21 @@ class HttpRouter:
 
 	# GET /internals/:app
 	def get_internal(self,path,headers,rfile):
-		app_name = path.path.split("/")[1]
-		return self._bridge.getInternal(app_name)
+		try:
+			app_name = path.path.split("/")[1]
+			res = {"value": self._bridge.getInternal(app_name)}
+		except:
+			res = { "error": app_name+" doesn't exist" }
+		return res
 	
 	# GET /exteransl/:app
 	def get_external(self,path,headers,rfile):
-		app_name = path.path.split("/")[1]
-		return self._bridge.getExternal(app_name)
+		try:
+			app_name = path.path.split("/")[1]
+			res = {"value": self._bridge.getExternal(app_name)}
+		except:
+			res = { "error": app_name+" doesn't exist" }
+		return res
 	
 	# GET /apps/:app
 	def get_app(self,path,headers,rfile):
