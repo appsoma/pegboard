@@ -6,7 +6,7 @@ import re
 import cgi
 import shutil
 import subprocess
-import urllib
+import urlparse
 import urllib
 import urllib2
 import json
@@ -379,16 +379,17 @@ class Bridge:
 		}))
 
 	def getApp(self,app_name):
-		app = None
-		try:
-			app = self._kv.get(app_name)
-		except:
+		app = self._kv.get(os.path.join(KeyManager.extra_services_directory,app_name))
+		
+		if not app:
 			masters = self._kv.get(KeyManager.cronjob_conf_file).split("\n")
 			for master in masters:
 				req = urllib2.Request("http://"+master+"/v2/apps/"+app_name+"?embed=apps.tasks")
 				responce = json.loads(urllib2.urlopen(req).read())["app"]
 				if "app" in responce:
 					return response["app"]
+		if app:
+			app = json.loads(app)
 
 		return app
 
@@ -509,6 +510,7 @@ HTTP server deamon
 """
 
 class HttpRouter:
+	# ACB: Ugly as hell, but can't think a better way
 	@property
 	def bridge(self):
 		return self._bridge
@@ -540,7 +542,7 @@ class HttpRouter:
 		app_name = path.path.split("/")[1]
 		app = self._bridge.getApp(app_name)
 		if not app:
-			app = { "error": app_name+"Doesn't exist" }
+			app = { "error": app_name+" doesn't exist" }
 		return app
 
 	# POST /apps/:app
@@ -564,8 +566,8 @@ class HttpHandler(BaseHTTPRequestHandler):
 		'GET /externals/[^\/]+$': 'get_external',
 
 		# apps api
-		'GET /app/[^\/]+$': 'get_app',
-		'POST /app$': 'add_app'
+		'GET /apps/[^\/]+$': 'get_app',
+		'POST /apps$': 'add_app'
 	}
 	router = HttpRouter()
 
@@ -592,7 +594,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 			else:
 				self.send_error(404, "Command not found")
 		except Exception as e:
-			self.send_error(403, "Failed to process command")
+			self.send_error(403, "Failed to process command") 
 
 	def do_HEAD(self):
 		self.doCommand("HEAD")
@@ -623,9 +625,14 @@ class HttpHandler(BaseHTTPRequestHandler):
 		return
 
 class HTTPServerDaemon(Daemon):
-	def run(self,bridge,port):
-		# ACB: Ugly as hell, but can't think a better way
-		HttpHandler.router.bridge = bridge
+	def run(self,zookeeper,port):
+		# ACB: For some reason, I can't the bridge created on the other thread
+		if zookeeper:
+			kv = Zookeeper(zookeeper)
+		else:
+			kv = Etcd()
+
+		HttpHandler.router.bridge = Bridge(kv)
 		self._server = HTTPServer(('localhost', port), HttpHandler)
 		self._server.serve_forever()
 
@@ -665,7 +672,7 @@ class CommandManager:
 
 		if self._args.with_webservice:
 			http_server = HTTPServerDaemon(self._args.http_pid_file)
-			http_server.start(self._bridge,self._args.port)
+			http_server.start(self._args.zookeeper,self._args.port)
 
 	def stop(self):
 		daemon = BridgeDaemon(self._args.pid_file)
