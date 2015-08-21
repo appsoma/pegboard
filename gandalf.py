@@ -639,15 +639,10 @@ Bridge Daemon
 """
 
 class BridgeDaemon(Daemon):
-	def run(self,bridge,http_pid_file,port):
-		self._http_server = HTTPServerDaemon()
-		self._http_server.start(bridge,port)
+	def run(self,bridge):
 		while True:
 			commandManager.update()
 			time.sleep(5)
-	def stop(self):
-		self._http_server.stop()
-		super(Daemon,self).stop()
 
 """
 Command manager
@@ -671,11 +666,19 @@ class CommandManager:
 
 	def start(self):
 		daemon = BridgeDaemon(self._args.pid_file)
-		daemon.start(self._bridge,self._args.http_pid_file,self._args.port)
+		daemon.start(self._bridge)
+
+		if self._args.with_webservice:
+			http_server = HTTPServerDaemon(self._args.http_pid_file)
+			http_server.start(self._bridge,self._args.port)
 
 	def stop(self):
 		daemon = BridgeDaemon(self._args.pid_file)
 		daemon.stop()
+
+		if self._args.with_webservice:
+			http_server = HTTPServerDaemon(self._args.http_pid_file)
+			http_server.stop()
 
 	def install(self):
 		script_path = self._args.installation_folder + script
@@ -723,11 +726,12 @@ if __name__ == "__main__":
 	script_dir = "/usr/local/bin/"
 
 	parser = argparse.ArgumentParser(description='Bridge between marathon and haproxy')
-	parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts")
+	parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts", nargs=1)
 	parser.add_argument("--pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts", nargs=1)
 	parser.add_argument("--http-pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts", nargs=1)
 	parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir, nargs=1)
 	parser.add_argument("--app-name", help="Choose another installation folder, default "+script_dir, nargs=1)
+	parser.add_argument("--with-webservice", help="Choose another installation folder, default "+script_dir)
 	parser.add_argument('action', choices=['update','install','start','stop','internal','external'])
 	args = parser.parse_args()
 
