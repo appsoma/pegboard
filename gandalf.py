@@ -44,7 +44,7 @@ class Daemon(object):
 		self.umask = umask
 		self.daemon_alive = True
 
-	def daemonize(self):
+	def daemonize(self, *args, **kwargs):
 		"""
 		Do the UNIX double-fork magic, see Stevens' "Advanced
 		Programming in the UNIX Environment" for details (ISBN 0201563177)
@@ -54,7 +54,7 @@ class Daemon(object):
 			pid = os.fork()
 			if pid > 0:
 				# Exit first parent
-				sys.exit(0)
+				return
 		except OSError, e:
 			sys.stderr.write(
 				"fork #1 failed: %d (%s)\n" % (e.errno, e.strerror))
@@ -105,6 +105,7 @@ class Daemon(object):
 			self.delpid)  # Make sure pid file is removed if we quit
 		pid = str(os.getpid())
 		file(self.pidfile, 'w+').write("%s\n" % pid)
+		self.run(*args, **kwargs)
 
 	def delpid(self):
 		os.remove(self.pidfile)
@@ -133,7 +134,7 @@ class Daemon(object):
 			sys.exit(1)
 
 		# Start the daemon
-		self.daemonize()
+		self.daemonize(*args, **kwargs)
 		self.run(*args, **kwargs)
 
 	def stop(self):
@@ -627,9 +628,6 @@ class HTTPServerDaemon(Daemon):
 		HttpHandler.router.bridge = bridge
 		self._server = HTTPServer(('localhost', port), HttpHandler)
 		self._server.serve_forever()
-	def stop(self):
-		self._server.shutdown()
-		super(Daemon,self).stop()
 
 """
 Bridge Daemon
