@@ -366,7 +366,7 @@ class Bridge:
 
 	@property
 	def kv(self):
-		return self.kv
+		return self._kv
 
 	def addStandaloneApp(self,app_name,url,service_port,servers):
 		app_path = KeyManager.extra_services_directory + "/" + app_name
@@ -483,11 +483,11 @@ class Bridge:
 				if server.strip() == "": continue
 				servers.append("   server "+app_name+"-host"+str(s)+" "+server)
 			tmp_backend = backend_template.replace("$app_name",app_name).replace("$servers","\n".join(servers))
-					if (app["url"][0] == "/") and app["strip_path"]:
+			if app["url"][0] == "/" and app["strip_path"]:
 				tmp_backend = tmp_backend.replace("$replace_req", "reqrep ^([^\ ]*\ /)"+app["url"][1:]+'[/]?(.*)	 \\1\\2')
-					else:
-							tmp_backend = tmp_backend.replace("$replace_req", "")
-					backends += tmp_backend.split("\n")
+			else:
+				tmp_backend = tmp_backend.replace("$replace_req", "")
+			backends += tmp_backend.split("\n")
 			self._saveEndpoints(app_name,app["url"],app["url"])
 	
 		apps = frontends.replace("$acls","\n".join(acls)).replace("$use_backends","\n".join(use_backends)).split("\n") + backends
@@ -547,16 +547,13 @@ class HttpRouter:
 		form = cgi.FieldStorage(
 			fp=rfile,
 			headers=headers,
-			environ={'REQUEST_METHOD':'POST','CONTENT_TYPE':headers['Content-Type']})
+			environ={'REQUEST_METHOD':'POST','CONTENT_TYPE':headers['Content-Type']}
 		)
 
-		if app_name not in form or 
-			url not in form or
-			service_port not in form or
-			servers not in form:
+		if "app_name" not in form or "url" not in form or "service_port" not in form or	"servers" not in form:
 			return { "Error": "You should post app_name, url, service_port and servers values" }
 
-		self._bridge.addStandaloneApp(app_name,url,service_port,servers)
+		self._bridge.addStandaloneApp(form["app_name"],form["url"],form["service_port"],form["servers"])
 		return { "success": True }
 	
 
@@ -703,24 +700,18 @@ class CommandManager:
 	def internal(self):
 		if not self.args.app_name:
 			raise ValueError("You need to specify app name: --app-name name")
-		return self._bridge.getInternal(self._args.app_name)
+		print self._bridge.getInternal(self._args.app_name)
 
 	def external(self):
 		if not self.args.app_name:
 			raise ValueError("You need to specify app name: --app-name name")
-		return self._bridge.getExternal(self._args.app_name)
+		print self._bridge.getExternal(self._args.app_name)
 
 	def _cronContent(self,script_path):
 		zookeeper = ""
 		if type(self._bridge.kv) == Zookeeper:
 			zookeeper = " --zookeeper "+self._bridge.kv.hosts
 		return "* * * * * root python "+script_path+zookeeper+" update >>/var/log/gandalf-cron.log 2>&1\n"
-
-def doSIGINT(sig, stack):
-	sys.exit(sig)
-
-def doSIGTERM(sig, stack):
-	sys.exit(sig)
 
 if __name__ == "__main__":
 	script_dir = "/usr/local/bin/"
@@ -739,7 +730,7 @@ if __name__ == "__main__":
 		args.installation_folder = script_dir
 
 	if args.zookeeper:
-		kv = Zookeeper(args.zookeeper)
+		kv = Zookeeper(args.zookeeper[0])
 	else:
 		kv = Etcd()
 
@@ -751,4 +742,4 @@ if __name__ == "__main__":
 
 	commandManager = CommandManager(Bridge(kv),args)
 
-	print commandManager.doCommand(args.action)
+	commandManager.doCommand(args.action)
