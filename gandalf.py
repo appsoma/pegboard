@@ -494,10 +494,10 @@ class Bridge:
 		return apps
 
 	def getExternal(self,app_name):
-		return self._kv.get(os.path.join(KeyManager.backends_directory,app_name),backend)
+		return self._kv.get(os.path.join(KeyManager.backends_directory,app_name))
 
 	def getInternal(self,app_name):
-		return self._kv.get(os.path.join(KeyManager.externals_directory,app_name),external)
+		return self._kv.get(os.path.join(KeyManager.externals_directory,app_name))
 
 	def _saveEndpoints(self,app_name,backend,external):
 		self._kv.set(os.path.join(KeyManager.backends_directory,app_name),backend)
@@ -652,7 +652,7 @@ class CommandManager:
 
 	@property
 	def args(self):
-		return self.args
+		return self._args
 
 	def doCommand(self,command,*args):
 		method = getattr(self,command)
@@ -677,6 +677,14 @@ class CommandManager:
 			http_server = HTTPServerDaemon(self._args.http_pid_file)
 			http_server.stop()
 
+	def restart(self):
+		daemon = BridgeDaemon(self._args.pid_file)
+		daemon.restart()
+
+		if self._args.with_webservice:
+			http_server = HTTPServerDaemon(self._args.http_pid_file)
+			http_server.restart()
+
 	def install(self):
 		script_path = self._args.installation_folder + script
 		try:
@@ -698,12 +706,12 @@ class CommandManager:
 		Haproxy.restart()
 
 	def internal(self):
-		if not self.args.app_name:
+		if not self._args.app_name:
 			raise ValueError("You need to specify app name: --app-name name")
 		print self._bridge.getInternal(self._args.app_name)
 
 	def external(self):
-		if not self.args.app_name:
+		if not self._args.app_name:
 			raise ValueError("You need to specify app name: --app-name name")
 		print self._bridge.getExternal(self._args.app_name)
 
@@ -717,20 +725,20 @@ if __name__ == "__main__":
 	script_dir = "/usr/local/bin/"
 
 	parser = argparse.ArgumentParser(description='Bridge between marathon and haproxy')
-	parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts", nargs=1)
-	parser.add_argument("--pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts", nargs=1)
-	parser.add_argument("--http-pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts", nargs=1)
-	parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir, nargs=1)
-	parser.add_argument("--app-name", help="Choose another installation folder, default "+script_dir, nargs=1)
-	parser.add_argument("--with-webservice", help="Choose another installation folder, default "+script_dir)
-	parser.add_argument('action', choices=['update','install','start','stop','internal','external'])
+	parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts")
+	parser.add_argument("--pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts")
+	parser.add_argument("--http-pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts")
+	parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir)
+	parser.add_argument("--app-name", help="Choose another installation folder, default "+script_dir)
+	parser.add_argument("--with-webservice", help="Choose another installation folder, default "+script_dir, action='store_true')
+	parser.add_argument('action', choices=['update','install','start','stop','restart','internal','external'])
 	args = parser.parse_args()
 
 	if not args.installation_folder:
 		args.installation_folder = script_dir
 
 	if args.zookeeper:
-		kv = Zookeeper(args.zookeeper[0])
+		kv = Zookeeper(args.zookeeper)
 	else:
 		kv = Etcd()
 
