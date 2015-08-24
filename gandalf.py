@@ -228,14 +228,14 @@ class PortManagement:
 	def check_port(self,port):
 		return port in self.ports
 	def new_port(self):
-		available_ports = [ i for i in range(1024, 49151) if i not in self.ports and PortManagement.available(i) ]
+		available_ports = [ i for i in range(1024, 49151) if i not in self.ports and self.available(i) ]
 
 		if len(available_ports) == 0: return False
 
 		choosen = random.choice(available_ports)
 		self.ports.append(choosen)
 		return choosen
-	def available(i):
+	def available(self,i):
 		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		result = sock.connect_ex(('127.0.0.1',i))
 		return result == 0
