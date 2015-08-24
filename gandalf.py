@@ -397,8 +397,8 @@ class Bridge:
 			masters = self._kv.get(KeyManager.cronjob_conf_file).split("\n")
 			for master in masters:
 				req = urllib2.Request("http://"+master+"/v2/apps/"+app_name+"?embed=apps.tasks")
-				responce = json.loads(urllib2.urlopen(req).read())["app"]
-				if "app" in responce:
+				response = json.loads(urllib2.urlopen(req).read())["app"]
+				if "app" in response:
 					return response["app"]
 		if app:
 			app = json.loads(app)
