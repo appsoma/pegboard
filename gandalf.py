@@ -305,6 +305,7 @@ class Zookeeper(KeyManager):
 			self.zk.create(key, data.encode('utf-8'))
 
 	def close(self):
+		self.zk.stop()
 		self.zk.close()
 
 	@property
@@ -669,6 +670,7 @@ class HTTPServerDaemon(Daemon):
 
 		self._kv = kv
 
+		# TODO: Find a nicer way to do that, Agustin, PLEASE
 		def sigtermhandler(signum, frame):
 			self.daemon_alive = False
 			self._kv.close()
