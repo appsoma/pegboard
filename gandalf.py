@@ -469,6 +469,7 @@ class Bridge:
 		backend_template = self._kv.get(KeyManager.config_backend_template)
 		acls = []
 		use_backends = []
+		internals = []
 		backends = []
 
 		for app_name,app in apps.items():
@@ -479,20 +480,34 @@ class Bridge:
 
 			acls.append(frontend)
 			use_backends.append("use_backend srvs_"+app_name+"	if "+app_name)
+
 			servers = []
 			for s in range(len(app["servers"])):
 				server = app["servers"][s]
 				if server.strip() == "": continue
 				servers.append("   server "+app_name+"-host"+str(s)+" "+server)
+
 			tmp_backend = backend_template.replace("$app_name",app_name).replace("$servers","\n".join(servers))
 			if app["url"][0] == "/" and app["strip_path"]:
 				tmp_backend = tmp_backend.replace("$replace_req", "reqrep ^([^\ ]*\ /)"+app["url"][1:]+'[/]?(.*)	 \\1\\2')
 			else:
 				tmp_backend = tmp_backend.replace("$replace_req", "")
 			backends += tmp_backend.split("\n")
-			self._saveEndpoints(app_name,app["url"],app["url"])
+
+			service_port = self.portManager.new_port()
+			if not service_port:
+				raise EnvironmentError("No open port available")
+			self.portManager.ports.append(service_port)
+			internals += [
+				"frontend internal-"+app_name,
+				"bind 0.0.0.0:"+str(service_port),
+				"mode http",
+				"default_backend srvs_"+app_name
+			]
+
+			self._saveEndpoints(app_name,socket.gethostbyname(socket.gethostname())+":"+str(service_port),app["url"])
 	
-		apps = frontends.replace("$acls","\n".join(acls)).replace("$use_backends","\n".join(use_backends)).split("\n") + backends
+		apps = frontends.replace("$acls","\n".join(acls)).replace("$use_backends","\n".join(use_backends)).replace("$internals","\n".join(internals)).split("\n") + backends
 		return apps
 
 	def getExternal(self,app_name):
