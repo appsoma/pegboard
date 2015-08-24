@@ -547,16 +547,18 @@ class HttpRouter:
 
 	# POST /apps/:app
 	def post_app(self,path,headers,rfile):
-		form = cgi.FieldStorage(
-			fp=rfile,
-			headers=headers,
-			environ={'REQUEST_METHOD':'POST','CONTENT_TYPE':headers['Content-Type']}
-		)
+		if "Content-Length" not in headers:
+			return { "Error": "Empty request" }
+		length = int(headers["Content-Length"])
+		data = rfile.read(length)
+		form = {}
+		for k,v in urlparse.parse_qsl( data ):
+			form[k] = v
 
 		if "app_name" not in form or "url" not in form or "service_port" not in form or	"servers" not in form:
 			return { "Error": "You should post app_name, url, service_port and servers values" }
 
-		self._bridge.addStandaloneApp(form["app_name"],form["url"],form["service_port"],form["servers"])
+		self._bridge.addStandaloneApp(form["app_name"],form["url"],form["service_port"],form["servers"].split(","))
 		return { "success": True }
 	
 
@@ -567,7 +569,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 
 		# apps api
 		'GET /apps/[^\/]+$': 'get_app',
-		'POST /apps$': 'add_app'
+		'POST /apps$': 'post_app'
 	}
 	router = HttpRouter()
 
