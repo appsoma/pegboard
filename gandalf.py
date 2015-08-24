@@ -135,7 +135,6 @@ class Daemon(object):
 
 		# Start the daemon
 		self.daemonize(*args, **kwargs)
-		self.run(*args, **kwargs)
 
 	def stop(self):
 		"""
@@ -225,20 +224,26 @@ Port Management
 class PortManagement:
 	def __init__(self):
 		self.ports = []
+		self.available_ports = [ i for i in range(1024, 49151) if i not in self.ports and self.available(i) ]
 	def check_port(self,port):
 		return port in self.ports
 	def new_port(self):
-		available_ports = [ i for i in range(1024, 49151) if i not in self.ports and self.available(i) ]
+		if len(self.available_ports) == 0: return False
 
-		if len(available_ports) == 0: return False
-
-		choosen = random.choice(available_ports)
+		choosen = random.choice(self.available_ports)
 		self.ports.append(choosen)
 		return choosen
+	def choose_port(self,port):
+		self.ports.append(port)
+		self.available_ports.remove(port)
 	def available(self,i):
 		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		result = sock.connect_ex(('127.0.0.1',i))
-		return result == 0
+		try:
+			result = sock.bind(('127.0.0.1',i))
+		except:
+			return False
+		sock.close()
+		return True
 
 """
 Key/value management
@@ -274,8 +279,11 @@ class Etcd(KeyManager):
 		req = urllib2.Request(self.api_url+url, data)
 		if data:
 			req.get_method = lambda: "PUT"
-		response = urllib2.urlopen(req)
-		return json.load(response)
+		try:
+			response = urllib2.urlopen(req)
+			return json.load(response)
+		except:
+			return None
 
 class Zookeeper(KeyManager):
 	def __init__(self,hosts): 
@@ -370,6 +378,8 @@ class Bridge:
 		return self._kv
 
 	def addStandaloneApp(self,app_name,url,service_port,servers):
+		if not url:
+			url = app_name+self._kv.get(KeyManager.subnet_dns)
 		app_path = KeyManager.extra_services_directory + "/" + app_name
 		self._kv.set(app_path, json.dumps({
 			"app_name": app_name,
@@ -438,7 +448,7 @@ class Bridge:
 							service_port = self.portManager.new_port()
 							if not service_port:
 								raise EnvironmentError("No open port available")
-							self.portManager.ports.append(service_port)
+							self.portManager.choose_port(service_port)
 						tcp_apps[app_name] = { "app_name": app_name+"-"+str(service_port), "service_port": str(service_port), "servers": servers }
 		
 		content += self._tcpApps(tcp_apps) + self._httpApps(http_apps)
@@ -497,7 +507,7 @@ class Bridge:
 			service_port = self.portManager.new_port()
 			if not service_port:
 				raise EnvironmentError("No open port available")
-			self.portManager.ports.append(service_port)
+			self.portManager.choose_port(service_port)
 			internals += [
 				"frontend internal-"+app_name,
 				"bind 0.0.0.0:"+str(service_port),
@@ -511,10 +521,10 @@ class Bridge:
 		return apps
 
 	def getExternal(self,app_name):
-		return self._kv.get(os.path.join(KeyManager.backends_directory,app_name))
+		return self._kv.get(os.path.join(KeyManager.externals_directory,app_name))
 
 	def getInternal(self,app_name):
-		return self._kv.get(os.path.join(KeyManager.externals_directory,app_name))
+		return self._kv.get(os.path.join(KeyManager.backends_directory,app_name))
 
 	def _saveEndpoints(self,app_name,backend,external):
 		self._kv.set(os.path.join(KeyManager.backends_directory,app_name),backend)
@@ -684,10 +694,14 @@ class CommandManager:
 		return method(*args)
 
 	def start(self):
-		daemon = BridgeDaemon(self._args.pid_file)
+		daemon = BridgeDaemon(self._args.pid_file,
+			stdout = self._args.log_file,
+			stderr = self._args.log_file
+		)
 		daemon.start(self._bridge)
 
 		if self._args.with_webservice:
+			self._bridge.addStandaloneApp("service-discovery",False,"80",["127.0.0.1:"+args.port]):
 			http_server = HTTPServerDaemon(self._args.http_pid_file)
 			http_server.start(self._args.zookeeper,self._args.port)
 
@@ -748,11 +762,13 @@ if __name__ == "__main__":
 
 	parser = argparse.ArgumentParser(description='Bridge between marathon and haproxy')
 	parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts")
-	parser.add_argument("--pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts")
-	parser.add_argument("--http-pid-file", help="Use zookeeper instead of etcd, should pass a list of hosts")
+	parser.add_argument("--pid-file", help="Pid file of the updater daemon")
+	parser.add_argument("--http-pid-file", help="Pid file of the http daemon")
 	parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir)
-	parser.add_argument("--app-name", help="Choose another installation folder, default "+script_dir)
-	parser.add_argument("--with-webservice", help="Choose another installation folder, default "+script_dir, action='store_true')
+	parser.add_argument("--app-name", help="App name in which perform the action")
+	parser.add_argument("--log-file", help="Log file location")
+	parser.add_argument("--port", help="Port of the web service",type=int)
+	parser.add_argument("--with-webservice", help="Use http service", action='store_true')
 	parser.add_argument('action', choices=['update','install','start','stop','restart','internal','external'])
 	args = parser.parse_args()
 
@@ -764,11 +780,17 @@ if __name__ == "__main__":
 	else:
 		kv = Etcd()
 
+	if not args.log_file:
+		args.log_file = "/var/log/gandalf.log"
+
 	if not args.pid_file:
 		args.pid_file = "/var/run/gandalf.pid"
 
 	if not args.http_pid_file:
 		args.http_pid_file = "/var/run/gandalf_server.pid"
+
+	if not args.port:
+		args.port = 2288
 
 	commandManager = CommandManager(Bridge(kv),args)
 
