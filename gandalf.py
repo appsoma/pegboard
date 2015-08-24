@@ -501,10 +501,16 @@ class Bridge:
 				tmp_backend = tmp_backend.replace("$replace_req", "")
 			backends += tmp_backend.split("\n")
 
-			service_port = self.portManager.new_port()
-			if not service_port:
-				raise EnvironmentError("No open port available")
-			self.portManager.choose_port(service_port)
+			if "internal_port" not in app:
+				service_port = self.portManager.new_port()
+				if not service_port:
+					raise EnvironmentError("No open port available")
+				self.portManager.choose_port(service_port)
+				app["internal_port"] = service_port
+				app_path = KeyManager.extra_services_directory + "/" + app_name
+				self._kv.set(app_path, json.dumps(app))
+			else:
+				service_port = app["internal_port"]
 			internals += [
 				"frontend internal-"+app_name,
 				"bind 0.0.0.0:"+str(service_port),
