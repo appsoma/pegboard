@@ -434,17 +434,18 @@ class Bridge:
 		
 				for i in range(len(app["ports"])):
 					service_port = app["ports"][i]
+					service_name = app_name+"-"+str(service_port)
 					servers = [ t["host"]+":"+str(t["ports"][i]) for t in app["tasks"] ]
 	
-					if i in http_ports and app_name not in http_apps: 
-						http_apps[app_name] = {
+					if i in http_ports and service_name not in http_apps: 
+						http_apps[service_name] = {
 							"strip_path": False,
 							"url": app_name+self._kv.get(KeyManager.subnet_dns),
-							"app_name": app_name
+							"app_name": service_name
 						}
 
-					if app_name in http_apps:
-						http_apps[app_name] = { "url": apps[app_name]["url"], "app_name": app_name+"-"+str(service_port), "service_port": str(service_port), "servers": servers, "strip_path": apps[app_name]["strip_path"] if "strip_path" in apps[app_name] else True, "internal_port": apps[app_name]["internal_port"] if "internal_port" in apps[app_name] else False }
+					if service_name in http_apps:
+						http_apps[service_name] = { "url": apps[service_name]["url"], "service_name": service_name, "service_port": str(service_port), "servers": servers, "strip_path": apps[service_name]["strip_path"] if "strip_path" in apps[service_name] else True, "internal_port": apps[service_name]["internal_port"] if "internal_port" in apps[service_name] else False }
 					else:
 						if self.portManager.check_port(service_port):
 							service_port = self.portManager.new_port()
