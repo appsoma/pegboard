@@ -444,7 +444,7 @@ class Bridge:
 						}
 
 					if app_name in http_apps:
-						http_apps[app_name] = { "url": apps[app_name]["url"], "app_name": app_name+"-"+str(service_port), "service_port": str(service_port), "servers": servers, "strip_path": apps[app_name]["strip_path"] if "strip_path" in apps[app_name] else True }
+						http_apps[app_name] = { "url": apps[app_name]["url"], "app_name": app_name+"-"+str(service_port), "service_port": str(service_port), "servers": servers, "strip_path": apps[app_name]["strip_path"] if "strip_path" in apps[app_name] else True, "internal_port": apps[app_name]["internal_port"] if "internal_port" in apps[app_name] else False }
 					else:
 						if self.portManager.check_port(service_port):
 							service_port = self.portManager.new_port()
@@ -506,7 +506,7 @@ class Bridge:
 				tmp_backend = tmp_backend.replace("$replace_req", "")
 			backends += tmp_backend.split("\n")
 
-			if "internal_port" not in app:
+			if not app["internal_port"]:
 				service_port = self.portManager.new_port()
 				if not service_port:
 					raise EnvironmentError("No open port available")
