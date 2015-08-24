@@ -279,11 +279,8 @@ class Etcd(KeyManager):
 		req = urllib2.Request(self.api_url+url, data)
 		if data:
 			req.get_method = lambda: "PUT"
-		try:
-			response = urllib2.urlopen(req)
-			return json.load(response)
-		except:
-			return None
+		response = urllib2.urlopen(req)
+		return json.load(response)
 
 class Zookeeper(KeyManager):
 	def __init__(self,hosts): 
@@ -546,27 +543,28 @@ class HttpRouter:
 
 	# GET /internals/:app
 	def get_internal(self,path,headers,rfile):
+		app_name = path.path.split("/")[2]
 		try:
-			app_name = path.path.split("/")[1]
-			res = {"value": self._bridge.getInternal(app_name)}
+			res = {"value": self.bridge.getInternal(app_name)}
 		except:
 			res = { "error": app_name+" doesn't exist" }
 		return res
 	
 	# GET /exteransl/:app
 	def get_external(self,path,headers,rfile):
+		app_name = path.path.split("/")[2]
 		try:
-			app_name = path.path.split("/")[1]
-			res = {"value": self._bridge.getExternal(app_name)}
+			res = {"value": self.bridge.getExternal(app_name)}
 		except:
 			res = { "error": app_name+" doesn't exist" }
 		return res
 	
 	# GET /apps/:app
 	def get_app(self,path,headers,rfile):
-		app_name = path.path.split("/")[1]
-		app = self._bridge.getApp(app_name)
-		if not app:
+		app_name = path.path.split("/")[2]
+		try:
+			app = self.bridge.getApp(app_name)
+		except:
 			app = { "error": app_name+" doesn't exist" }
 		return app
 
@@ -583,7 +581,7 @@ class HttpRouter:
 		if "app_name" not in form or "url" not in form or "service_port" not in form or	"servers" not in form:
 			return { "Error": "You should post app_name, url, service_port and servers values" }
 
-		self._bridge.addStandaloneApp(form["app_name"],form["url"],form["service_port"],form["servers"].split(","))
+		self.bridge.addStandaloneApp(form["app_name"],form["url"],form["service_port"],form["servers"].split(","))
 		return { "success": True }
 	
 
@@ -701,7 +699,7 @@ class CommandManager:
 		daemon.start(self._bridge)
 
 		if self._args.with_webservice:
-			self._bridge.addStandaloneApp("service-discovery",False,"80",["127.0.0.1:"+args.port]):
+			self._bridge.addStandaloneApp("service-discovery",False,"80",["127.0.0.1:"+str(args.port)])
 			http_server = HTTPServerDaemon(self._args.http_pid_file)
 			http_server.start(self._args.zookeeper,self._args.port)
 
