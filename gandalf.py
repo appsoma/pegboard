@@ -266,6 +266,7 @@ class KeyManager:
 	def get(self,key): pass
 	@abstractmethod
 	def set(self,key,data): pass
+	def close(self): pass
 
 class Etcd(KeyManager):
 	def __init__(self):
@@ -302,6 +303,9 @@ class Zookeeper(KeyManager):
 			self.zk.set(key, data.encode('utf-8'))
 		except Exception as e:
 			self.zk.create(key, data.encode('utf-8'))
+
+	def close(self):
+		self.zk.close()
 
 	@property
 	def hosts(self):
@@ -663,6 +667,16 @@ class HTTPServerDaemon(Daemon):
 		else:
 			kv = Etcd()
 
+		self._kv = kv
+
+		def sigtermhandler(signum, frame):
+			self.daemon_alive = False
+			self._kv.close()
+			sys.exit()
+
+		signal.signal(signal.SIGTERM, sigtermhandler)
+		signal.signal(signal.SIGINT, sigtermhandler)
+
 		HttpHandler.router.bridge = Bridge(kv)
 		self._server = HTTPServer(('localhost', port), HttpHandler)
 		self._server.serve_forever()
@@ -673,6 +687,16 @@ Bridge Daemon
 
 class BridgeDaemon(Daemon):
 	def run(self,bridge):
+		self._kv = bridge.kv
+
+		def sigtermhandler(signum, frame):
+			self.daemon_alive = False
+			self._kv.close()
+			sys.exit()
+
+		signal.signal(signal.SIGTERM, sigtermhandler)
+		signal.signal(signal.SIGINT, sigtermhandler)
+
 		while True:
 			commandManager.update()
 			time.sleep(5)
@@ -799,3 +823,5 @@ if __name__ == "__main__":
 	commandManager = CommandManager(Bridge(kv),args)
 
 	commandManager.doCommand(args.action)
+
+	kv.close()
