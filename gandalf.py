@@ -690,8 +690,12 @@ Bridge Daemon
 """
 
 class BridgeDaemon(Daemon):
-	def run(self,bridge):
-		self._kv = bridge.kv
+	def run(self,args):
+		if args.zookeeper:
+			kv = Zookeeper(args.zookeeper)
+		else:
+			kv = Etcd()
+		self._kv = kv
 
 		def sigtermhandler(signum, frame):
 			self.daemon_alive = False
@@ -701,6 +705,7 @@ class BridgeDaemon(Daemon):
 		signal.signal(signal.SIGTERM, sigtermhandler)
 		signal.signal(signal.SIGINT, sigtermhandler)
 
+		commandManager = CommandManager(Bridge(kv),args)
 		while True:
 			commandManager.update()
 			time.sleep(5)
@@ -730,7 +735,7 @@ class CommandManager:
 			stdout = self._args.log_file,
 			stderr = self._args.log_file
 		)
-		daemon.start(self._bridge)
+		daemon.start(self._args)
 
 		if self._args.with_webservice:
 			self._bridge.addStandaloneApp("service-discovery",False,"80",["127.0.0.1:"+str(args.port)])
