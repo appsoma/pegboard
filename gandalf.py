@@ -416,7 +416,10 @@ class Bridge:
 			prefix = ""
 		for i in apps_data:
 			s = json.loads(i["value"])
-			apps[s["app_name"]] = s
+			if "app_name" in s:
+				apps[s["app_name"]] = s
+			else:
+				print "ERROR. Entry", i, "in", KeyManager.extra_services_directory, "lacks app_name", i["value"]
 
 		http_apps = apps
 		tcp_apps = {}
@@ -445,7 +448,7 @@ class Bridge:
 						}
 
 					if service_name in http_apps:
-						http_apps[service_name] = { "url": apps[service_name]["url"], "service_name": service_name, "service_port": str(service_port), "servers": servers, "strip_path": apps[service_name]["strip_path"] if "strip_path" in apps[service_name] else True, "internal_port": apps[service_name]["internal_port"] if "internal_port" in apps[service_name] else False }
+						http_apps[service_name] = { "url": apps[service_name]["url"], "app_name": service_name, "service_port": str(service_port), "servers": servers, "strip_path": apps[service_name]["strip_path"] if "strip_path" in apps[service_name] else True, "internal_port": apps[service_name]["internal_port"] if "internal_port" in apps[service_name] else False }
 					else:
 						if self.portManager.check_port(service_port):
 							service_port = self.portManager.new_port()
