@@ -465,6 +465,11 @@ class Bridge:
 	
 	def _tcpApps(self,apps):
 		content = []
+
+		try:
+			ip = urllib2.urlopen('http://whatismyip.org').read()
+		except:
+			return content
 		
 		for app_name,app in apps.items():
 			server_config = self._kv.get(KeyManager.config_port_template).replace("$app_name",app["app_name"]).replace("$service_port",app["service_port"]).split("\n")
@@ -474,7 +479,7 @@ class Bridge:
 				server_config.append("  server "+app_name+"-"+str(i)+" "+server+" check")
 			
 			backend = socket.gethostbyname(socket.gethostname())+":"+app["service_port"]
-			external = urllib2.urlopen('http://whatismyip.org').read()+":"+app["service_port"]
+			external = ip+":"+app["service_port"]
 			self._saveEndpoints(app_name,backend,external)
 			content += server_config
 
