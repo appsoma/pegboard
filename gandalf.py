@@ -416,8 +416,8 @@ class Bridge:
 			prefix = ""
 		for i in apps_data:
 			s = json.loads(i["value"])
-			if "internal_port" in s and bool(s["internal_port"]): 
-				apps["servers"] = []
+			if "marathon" in s and s["marathon"]: 
+				s["servers"] = []
 			if "app_name" in s:
 				apps[s["app_name"]] = s
 			else:
@@ -446,11 +446,12 @@ class Bridge:
 						http_apps[service_name] = {
 							"strip_path": False,
 							"url": app_name+self._kv.get(KeyManager.subnet_dns),
-							"app_name": service_name
+							"app_name": service_name,
+							"marathon": True
 						}
 
 					if service_name in http_apps:
-						http_apps[service_name] = { "url": apps[service_name]["url"], "app_name": service_name, "service_port": str(service_port), "servers": servers, "strip_path": apps[service_name]["strip_path"] if "strip_path" in apps[service_name] else True, "internal_port": apps[service_name]["internal_port"] if "internal_port" in apps[service_name] else False }
+						http_apps[service_name] = { "url": apps[service_name]["url"], "app_name": service_name, "service_port": str(service_port), "servers": servers, "strip_path": apps[service_name]["strip_path"] if "strip_path" in apps[service_name] else True, "internal_port": apps[service_name]["internal_port"] if "internal_port" in apps[service_name] else False, "marathon": True }
 					else:
 						if self.portManager.check_port(service_port):
 							service_port = self.portManager.new_port()
@@ -496,7 +497,7 @@ class Bridge:
 		backends = []
 
 		for app_name,app in apps.items():
-			if "servers" not in app: continue
+			if "servers" not in app or len(app["servers"]) == 0: continue
 			frontend = ""
 			if(app["url"][0] == "/"): frontend = "   acl "+app_name+" path_end -i "+app["url"]
 			else: frontend = "   acl "+app_name+" hdr(host) -i "+app["url"]
