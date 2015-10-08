@@ -416,6 +416,8 @@ class Bridge:
 			prefix = ""
 		for i in apps_data:
 			s = json.loads(i["value"])
+			if "internal_port" in s and bool(s["internal_port"]): 
+				apps["servers"] = []
 			if "app_name" in s:
 				apps[s["app_name"]] = s
 			else:
