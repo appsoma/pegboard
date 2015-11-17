@@ -379,6 +379,9 @@ class Bridge:
 	def kv(self):
 		return self._kv
 
+	def createDirtree(tpl_frontend,tpl_backend,tpl_tcp,tpl_general):
+		
+
 	def addStandaloneApp(self,app_name,url,service_port,servers):
 		if not url:
 			url = app_name+self._kv.get(KeyManager.subnet_dns)
@@ -405,9 +408,7 @@ class Bridge:
 
 		return app
 
-	def generateConfigContent(self):
-		masters = self._kv.get(KeyManager.cronjob_conf_file).split("\n")
-
+	def getApps(self):
 		apps = {}
 		apps_data = self._kv.get(KeyManager.extra_services_directory)
 		try:
@@ -422,6 +423,13 @@ class Bridge:
 				apps[s["app_name"]] = s
 			else:
 				print "ERROR. Entry", i, "in", KeyManager.extra_services_directory, "lacks app_name", i["value"]
+		return apps
+		
+
+	def generateConfigContent(self):
+		masters = self._kv.get(KeyManager.cronjob_conf_file).split("\n")
+
+		apps = self.getApps()
 
 		http_apps = apps
 		tcp_apps = {}
@@ -582,6 +590,10 @@ class HttpRouter:
 		except:
 			res = { "error": app_name+" doesn't exist" }
 		return res
+
+	def get_apps(self,path,header,rfile):
+		apps = self.bridge.getApps()
+		return apps
 	
 	# GET /apps/:app
 	def get_app(self,path,headers,rfile):
@@ -606,8 +618,14 @@ class HttpRouter:
 			return { "Error": "You should post app_name, url, service_port and servers values" }
 
 		self.bridge.addStandaloneApp(form["app_name"],form["url"],form["service_port"],form["servers"].split(","))
+		self.bridge.generateConfigContent()
 		return { "success": True }
 	
+	# GET /marathon/update
+	# GET /apps/update
+	def update(self,path,headers,rfile):
+		self.bridge.generateConfigContent()
+		return { "success": True }
 
 class HttpHandler(BaseHTTPRequestHandler):
 	routes = {
@@ -615,8 +633,13 @@ class HttpHandler(BaseHTTPRequestHandler):
 		'GET /externals/[^\/]+$': 'get_external',
 
 		# apps api
+		'GET /apps$': 'get_apps',
 		'GET /apps/[^\/]+$': 'get_app',
-		'POST /apps$': 'post_app'
+		'POST /apps$': 'post_app',
+		'GET /apps/update$': 'update',
+
+		# marathon's api
+		'GET /marathon/update': 'update'
 	}
 	router = HttpRouter()
 
@@ -696,30 +719,6 @@ class HTTPServerDaemon(Daemon):
 		self._server = HTTPServer(('localhost', port), HttpHandler)
 		self._server.serve_forever()
 
-"""
-Bridge Daemon
-"""
-
-class BridgeDaemon(Daemon):
-	def run(self,args):
-		if args.zookeeper:
-			kv = Zookeeper(args.zookeeper)
-		else:
-			kv = Etcd()
-		self._kv = kv
-
-		def sigtermhandler(signum, frame):
-			self.daemon_alive = False
-			self._kv.close()
-			sys.exit()
-
-		signal.signal(signal.SIGTERM, sigtermhandler)
-		signal.signal(signal.SIGINT, sigtermhandler)
-
-		commandManager = CommandManager(Bridge(kv),args)
-		while True:
-			commandManager.update()
-			time.sleep(5)
 
 """
 Command manager
@@ -742,24 +741,13 @@ class CommandManager:
 		return method(*args)
 
 	def start(self):
-		daemon = BridgeDaemon(self._args.pid_file,
-			stdout = self._args.log_file,
-			stderr = self._args.log_file
-		)
-		daemon.start(self._args)
-
-		if self._args.with_webservice:
-			self._bridge.addStandaloneApp("service-discovery",False,"80",["127.0.0.1:"+str(args.port)])
-			http_server = HTTPServerDaemon(self._args.http_pid_file)
-			http_server.start(self._args.zookeeper,self._args.port)
+		self._bridge.addStandaloneApp("service-discovery",False,"80",["127.0.0.1:"+str(args.port)])
+		http_server = HTTPServerDaemon(self._args.http_pid_file)
+		http_server.start(self._args.zookeeper,self._args.port)
 
 	def stop(self):
-		daemon = BridgeDaemon(self._args.pid_file)
-		daemon.stop()
-
-		if self._args.with_webservice:
-			http_server = HTTPServerDaemon(self._args.http_pid_file)
-			http_server.stop()
+		http_server = HTTPServerDaemon(self._args.http_pid_file)
+		http_server.stop()
 
 	def restart(self):
 		daemon = BridgeDaemon(self._args.pid_file)
@@ -778,16 +766,25 @@ class CommandManager:
 		shutil.copyfile(script,script_path)
 		os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-		Cron.createCronJob("gandalf",self._cronContent(script_path))
+		if self._args.marathon:
+			marathon = self._args.marathon.split(",")[0]
+			service_discovery = self.bridge.getInternal("service-discovery")
+			marathon_url = marathon + "/v2/eventSubscriptions?callbackUrl=";
+			callback_url = service_discovery + "/marathon/update";
+			
+			content = json.loads(urllib2.urlopen(urllib.parse(marathon_url+welder_url),data={}).read())
+			if "callbackUrl" not in content:
+				print "Error installing the marathon callback",content
+		if self._args.cron_job:
+			Cron.createCronJob("gandalf",self._cronContent(script_path))
+
+		# Create all the dirtree structure in the key/value service
+		self.bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general)
+
+		self.update()
 
 	def update(self):
-		new_content = self._bridge.generateConfigContent()
-		old_content = Haproxy.readConfig()
-
-		if new_content == old_content: return
-
-		Haproxy.writeConfig(new_content)
-		Haproxy.restart()
+		self._bridge.generateConfigContent()
 
 	def internal(self):
 		if not self._args.app_name:
@@ -810,16 +807,26 @@ if __name__ == "__main__":
 
 	parser = argparse.ArgumentParser(description='Bridge between marathon and haproxy')
 	parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts")
+	parser.add_argument("--marathon", help="To use marathon, should pass the masters list comma separated")
 	parser.add_argument("--pid-file", help="Pid file of the updater daemon")
 	parser.add_argument("--http-pid-file", help="Pid file of the http daemon")
 	parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir)
 	parser.add_argument("--app-name", help="App name in which perform the action")
 	parser.add_argument("--log-file", help="Log file location")
 	parser.add_argument("--port", help="Port of the web service",type=int)
-	parser.add_argument("--with-webservice", help="Use http service", action='store_true')
+	parser.add_argument("--cron-job", help="Update using a cron job", action='store_true')
+	parser.add_argument("--template-frontend", help="Template for http frontends", action='store_true')
+	parser.add_argument("--template-backend", help="Template for http backends", action='store_true')
+	parser.add_argument("--template-tcp", help="Template for tcp jobs", action='store_true')
+	parser.add_argument("--template-general", help="Template for general configuration", action='store_true')
 	parser.add_argument('action', choices=['update','install','start','stop','restart','internal','external'])
 	args = parser.parse_args()
 
+	if args.action == "install" and 
+		not (args.template_frontend and args.template_backend and args.template_internal and args.template_general):
+		print "You need to specify the templates to use in the installation"
+		sys.exit(1)
+	
 	if not args.installation_folder:
 		args.installation_folder = script_dir
 
@@ -845,3 +852,6 @@ if __name__ == "__main__":
 	commandManager.doCommand(args.action)
 
 	kv.close()
+#!/usr/bin/python
+import sys
+import stat
