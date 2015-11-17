@@ -608,12 +608,9 @@ class HttpRouter:
 	def post_app(self,path,headers,rfile):
 		if "Content-Length" not in headers:
 			return { "Error": "Empty request" }
-		length = int(headers["Content-Length"])
-		data = rfile.read(length)
-		form = {}
-		for k,v in urlparse.parse_qsl( data ):
-			form[k] = v
 
+		form = self._getContent(headers,rfile)	
+	
 		if "app_name" not in form or "url" not in form or "service_port" not in form or	"servers" not in form:
 			return { "Error": "You should post app_name, url, service_port and servers values" }
 
@@ -621,11 +618,29 @@ class HttpRouter:
 		self.bridge.generateConfigContent()
 		return { "success": True }
 	
-	# GET /marathon/update
 	# GET /apps/update
-	def update(self,path,headers,rfile):
+	def apps_update(self,path,headers,rfile):
 		self.bridge.generateConfigContent()
 		return { "success": True }
+
+	# GET /marathon/update
+	def update(self,path,headers,rfile):
+		if "Content-Length" not in headers:
+			return { "Error": "Empty request" }
+
+		form = self._getContent(headers,rfile)	
+		print "PEPEPEPEPE",form
+
+		self.bridge.generateConfigContent()
+		return { "success": True }
+
+	def _getContent(self,headers,rfile):
+		length = int(headers["Content-Length"])
+		data = rfile.read(length)
+		form = {}
+		for k,v in urlparse.parse_qsl( data ):
+			form[k] = v
+		return form
 
 class HttpHandler(BaseHTTPRequestHandler):
 	routes = {
@@ -636,7 +651,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 		'GET /apps$': 'get_apps',
 		'GET /apps/[^\/]+$': 'get_app',
 		'POST /apps$': 'post_app',
-		'GET /apps/update$': 'update',
+		'GET /apps/update$': 'apps_update',
 
 		# marathon's api
 		'GET /marathon/update': 'update'
@@ -852,6 +867,3 @@ if __name__ == "__main__":
 	commandManager.doCommand(args.action)
 
 	kv.close()
-#!/usr/bin/python
-import sys
-import stat
