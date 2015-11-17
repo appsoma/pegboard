@@ -791,7 +791,7 @@ class CommandManager:
 			if "callbackUrl" not in content:
 				print "Error installing the marathon callback",content
 		if self._args.cron_job:
-			Cron.createCronJob("gandalf",self._cronContent(script_path))
+			Cron.createCronJob("pegboard",self._cronContent(script_path))
 
 		# Create all the dirtree structure in the key/value service
 		self.bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general)
@@ -815,7 +815,7 @@ class CommandManager:
 		zookeeper = ""
 		if type(self._bridge.kv) == Zookeeper:
 			zookeeper = " --zookeeper "+self._bridge.kv.hosts
-		return "* * * * * root python "+script_path+zookeeper+" update >>/var/log/gandalf-cron.log 2>&1\n"
+		return "* * * * * root python "+script_path+zookeeper+" update >>/var/log/pegboard-cron.log 2>&1\n"
 
 if __name__ == "__main__":
 	script_dir = "/usr/local/bin/"
@@ -851,13 +851,13 @@ if __name__ == "__main__":
 		kv = Etcd()
 
 	if not args.log_file:
-		args.log_file = "/var/log/gandalf.log"
+		args.log_file = "/var/log/pegboard.log"
 
 	if not args.pid_file:
-		args.pid_file = "/var/run/gandalf.pid"
+		args.pid_file = "/var/run/pegboard.pid"
 
 	if not args.http_pid_file:
-		args.http_pid_file = "/var/run/gandalf_server.pid"
+		args.http_pid_file = "/var/run/pegboard_server.pid"
 
 	if not args.port:
 		args.port = 2288
