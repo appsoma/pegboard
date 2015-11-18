@@ -758,7 +758,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 		'GET /apps$': 'get_apps',
 		'GET /apps/[^\/]+$': 'get_app',
 		'POST /apps$': 'post_app',
-		'GET /apps/update$': 'apps_update',
+		'GET /update$': 'apps_update',
 
 		# marathon's api
 		'GET /marathon/update': 'update'
