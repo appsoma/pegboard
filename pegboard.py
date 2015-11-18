@@ -16,6 +16,7 @@ import argparse
 import signal
 import time
 import atexit
+import traceback
 from abc import ABCMeta,abstractmethod
 from kazoo.client import KazooClient
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
@@ -788,6 +789,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 			else:
 				self.send_error(404, "Command not found")
 		except Exception as e:
+			print traceback.format_exc()
 			self.send_error(403, "Failed to process command") 
 
 	def do_HEAD(self):
@@ -864,7 +866,7 @@ class CommandManager:
 		return method(*args)
 
 	def start(self):
-		http_server = HTTPServerDaemon(self._args.http_pid_file)
+		http_server = HTTPServerDaemon(self._args.http_pid_file,stdout=self._args.log_file, stderr=self._args.log_file)
 		http_server.start(self._args.zookeeper,self._args.port,self._bridge.master)
 
 	def stop(self):
