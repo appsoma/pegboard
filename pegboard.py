@@ -886,6 +886,9 @@ class CommandManager:
 			if(e.errno!=17): raise e
 		shutil.copyfile(script,script_path)
 		os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+
+		# Create all the dirtree structure in the key/value service
+		self.bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general,args.subnet_dns,args.path_prefix,args.marathon,args.port)
 		
 		ip = socket.gethostbyname(socket.gethostname())
 		self._bridge.addStandaloneApp("service-discovery",False,"80",[ip+":"+str(args.port)])
@@ -901,9 +904,6 @@ class CommandManager:
 				print "Error installing the marathon callback",content
 		if self._args.cron_job:
 			Cron.createCronJob("pegboard",self._cronContent(script_path))
-
-		# Create all the dirtree structure in the key/value service
-		self.bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general,args.subnet_dns,args.path_prefix,args.marathon,args.port)
 
 		self.update()
 
