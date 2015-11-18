@@ -253,7 +253,7 @@ class KeyManager:
 	__metaclass__ = ABCMeta
 	haproxy_pids = name+"/haproxy.pids"
 	config_template = name+"/haproxy.cfg"
-	config_port_template = name+"/haproxy_port.cfg"
+	config_tcp_template = name+"/haproxy_tcp.cfg"
 	config_frontend_template = name+"/haproxy_frontends.cfg"
 	config_backend_template = name+"/haproxy_backend.cfg"
 	extra_services_directory = name+"/services"
@@ -414,7 +414,7 @@ class Bridge:
 		self._kv.mkdir(KeyManager.slaves_directory)
 		self._kv.set(KeyManager.haproxy_pids,"[]")
 		self._kv.set(KeyManager.config_template,tpl_general)
-		self._kv.set(KeyManager.config_port_template,tpl_tcp)
+		self._kv.set(KeyManager.config_tcp_template,tpl_tcp)
 		self._kv.set(KeyManager.config_frontend_template,tpl_frontend)
 		self._kv.set(KeyManager.config_backend_template,tpl_backend)
 		self._kv.set(KeyManager.master,socket.gethostbyname(socket.gethostname())+":"+str(port))
@@ -539,7 +539,7 @@ class Bridge:
 			return content
 		
 		for app_name,app in apps.items():
-			server_config = self._kv.get(KeyManager.config_port_template).replace("$app_name",app["app_name"]).replace("$service_port",app["service_port"]).split("\n")
+			server_config = self._kv.get(KeyManager.config_tcp_template).replace("$app_name",app["app_name"]).replace("$service_port",app["service_port"]).split("\n")
 			for i in range(len(app["servers"])):
 				server = app["servers"][i]
 				if server.strip() == "": continue
