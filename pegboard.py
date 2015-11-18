@@ -895,7 +895,7 @@ class CommandManager:
 
 		if self._args.marathon:
 			marathon = self._args.marathon.split(",")[0]
-			service_discovery = self.bridge.getInternal("service-discovery")
+			service_discovery = self._bridge.getInternal("service-discovery")
 			marathon_url = marathon + "/v2/eventSubscriptions?callbackUrl=";
 			callback_url = service_discovery + "/marathon/update";
 			
