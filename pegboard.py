@@ -432,20 +432,21 @@ class Bridge:
 		ip = socket.gethostbyname(socket.gethostname())
 		self._kv.set(KeyManager.slaves_directory+"/"+id,ip)
 
-	def addStandaloneApp(self,app_name,url,service_port,servers):
+	def addStandaloneApp(self,app_name,url,port,servers):
 		if not url:
 			url = app_name+self._kv.get(KeyManager.subnet_dns)
 		app_path = KeyManager.extra_services_directory + "/" + app_name
-		self._kv.set(app_path, json.dumps({
-			"app_name": app_name,
-			"url": url,
-			"service_port": service_port,
-			"servers": servers
-		}))
 		service_port = self.portManager.new_port()
 		if not service_port:
 			raise EnvironmentError("No open port available")
 		self.portManager.choose_port(service_port)
+		self._kv.set(app_path, json.dumps({
+			"app_name": app_name,
+			"url": url,
+			"internal_port": service_port,
+			"service_port": port,
+			"servers": servers
+		}))
 		self._saveEndpoints(app_name,socket.gethostbyname(socket.gethostname())+":"+str(service_port),url)
 
 	def addHostToApp(self,app_name,host):
@@ -905,7 +906,7 @@ class CommandManager:
 			marathon = self._args.marathon.split(",")[0]
 			service_discovery = self._bridge.getInternal("service-discovery")
 			marathon_url = "http://" + marathon + "/v2/eventSubscriptions?callbackUrl=";
-			callback_url = service_discovery + "/marathon/update";
+			callback_url = "http://" + service_discovery + "/marathon/update";
 			
 			req = urllib2.Request(marathon_url+urllib.quote_plus(callback_url))
 			req.get_method = lambda: "POST"
@@ -913,6 +914,12 @@ class CommandManager:
 			content = json.load(response)
 			if "callbackUrl" not in content:
 				print "Error installing the marathon callback",content
+			try:
+				with open("/etc/marathon/conf/http_endpoints","w") as f:
+					f.write(callback_url)
+			except:
+				raise EnvironmentError("Can't write config file, please check marathon installation.")
+			subprocess.Popen(['service', 'marathon', 'restart'])
 		if self._args.cron_job:
 			Cron.createCronJob("pegboard",self._cronContent(script_path))
 
