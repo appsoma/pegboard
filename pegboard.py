@@ -615,7 +615,7 @@ class Bridge:
 		old = Haproxy.readConfig()
 
 		if old != content:
-			Haproxy.writeConfig()
+			Haproxy.writeConfig(content)
 			pids = Haproxy.restart()
 			valid_pids = json.loads(self._kv.get(KeyManager.haproxy_pids))
 			valid_pids += pids.split(" ")
