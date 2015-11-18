@@ -736,19 +736,23 @@ class HttpRouter:
 			return { "Error": "Empty request" }
 
 		form = self._getContent(headers,rfile)	
-		print "PEPEPEPEPE",form
 
-		conf = self.bridge.generateConfigContent()
-		self.bridge.saveConfig(conf)
-		self.bridge.cleanPids()
+		if form["eventType"] == "deployment_step_success":
+			conf = self.bridge.generateConfigContent()
+			self.bridge.saveConfig(conf)
+			self.bridge.cleanPids()
 		return { "success": True }
 
 	def _getContent(self,headers,rfile):
 		length = int(headers["Content-Length"])
 		data = rfile.read(length)
 		form = {}
-		for k,v in urlparse.parse_qsl( data ):
-			form[k] = v
+		if headers["Content-Type"] == "application/json; charset=UTF-8":
+			form = json.loads(data)
+		else:
+			form = {}
+			for k,v in urlparse.parse_qsl( data ):
+				form[k] = v
 		return form
 
 class HttpHandler(BaseHTTPRequestHandler):
@@ -763,7 +767,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 		'GET /update$': 'apps_update',
 
 		# marathon's api
-		'GET /marathon/update': 'update'
+		'POST /marathon/update': 'update'
 	}
 	router = HttpRouter()
 
