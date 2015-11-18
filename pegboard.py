@@ -440,6 +440,11 @@ class Bridge:
 			"service_port": service_port,
 			"servers": servers
 		}))
+		service_port = self.portManager.new_port()
+		if not service_port:
+			raise EnvironmentError("No open port available")
+		self.portManager.choose_port(service_port)
+		self._saveEndpoints(app_name,socket.gethostbyname(socket.gethostname())+":"+str(service_port),url)
 
 	def addHostToApp(self,app_name,host):
 		app = self.getApp(app_name)
