@@ -397,7 +397,7 @@ class Bridge:
 	def kv(self):
 		return self._kv
 
-	def createDirtree(tpl_frontend,tpl_backend,tpl_tcp,tpl_general,subnet_dns,path_prefix,marathons,port):
+	def createDirtree(self,tpl_frontend,tpl_backend,tpl_tcp,tpl_general,subnet_dns,path_prefix,marathons,port):
 		with open(tpl_frontend,"r") as f:
 			tpl_frontend = f.read()
 		with open(tpl_backend,"r") as f:
