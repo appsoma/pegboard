@@ -338,6 +338,7 @@ class Haproxy:
 		except IOError as e:
 			# ACB: File may not exist
 			if(e.errno != 2): raise e
+		return pids
 		
 	@classmethod
 	def restart(cls):
