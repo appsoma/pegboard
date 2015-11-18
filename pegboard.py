@@ -635,7 +635,7 @@ class Bridge:
 				os.kill(pid, signal.SIGKILL)
 	
 	def masterUpdate(self):
-		master_url = self._kv.get(KeyManager.master)
+		master_url = "http://" + self._kv.get(KeyManager.master)
 		update_url = "/apps/update"
 		result = json.loads(urllib2.urlopen(master_url+update_url).read())
 		if "success" in result and result["success"]:
@@ -981,7 +981,7 @@ if __name__ == "__main__":
 
 	master = False
 	try:	
-		master_host = self._kv.get(KeyManager.master)
+		master_host = kv.get(KeyManager.master)
 		master = master_host == socket.gethostbyname(socket.gethostname())+":"+str(args.port)
 	except:
 		if args.action == "install": master = True
