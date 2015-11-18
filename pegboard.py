@@ -619,7 +619,7 @@ class Bridge:
 			Haproxy.writeConfig(content)
 			pids = Haproxy.restart()
 			valid_pids = json.loads(self._kv.get(KeyManager.haproxy_pids))
-			valid_pids += pids.split(" ")
+			valid_pids += [ int(pid) for pid in pids.split(" ") if pid != "" ]
 			self._kv.set(KeyManager.haproxy_pids,json.dumps(valid_pids))
 
 	def cleanPids(self):
