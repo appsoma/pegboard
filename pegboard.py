@@ -978,9 +978,6 @@ if __name__ == "__main__":
 	if not args.log_file:
 		args.log_file = "/var/log/pegboard.log"
 
-	if not args.pid_file:
-		args.pid_file = "/var/run/pegboard.pid"
-
 	if not args.http_pid_file:
 		args.http_pid_file = "/var/run/pegboard_server.pid"
 
