@@ -865,7 +865,7 @@ class CommandManager:
 
 	def start(self):
 		http_server = HTTPServerDaemon(self._args.http_pid_file)
-		http_server.start(self._args.zookeeper,self._args.port,self.bridge.master)
+		http_server.start(self._args.zookeeper,self._args.port,self._bridge.master)
 
 	def stop(self):
 		http_server = HTTPServerDaemon(self._args.http_pid_file)
