@@ -635,7 +635,7 @@ class Bridge:
 	def masterUpdate(self):
 		master_url = self._kv.get(KeyManager.master)
 		update_url = "/apps/update"
-		result = json.loads(urllib2.urlopen(urllib.parse(master_url+update_url)).read())
+		result = json.loads(urllib2.urlopen(urllib.parse.urlparse(master_url+update_url)).read())
 		if "success" in result and result["success"]:
 			return True
 		else:
@@ -904,7 +904,7 @@ class CommandManager:
 			marathon_url = marathon + "/v2/eventSubscriptions?callbackUrl=";
 			callback_url = service_discovery + "/marathon/update";
 			
-			content = json.loads(urllib2.urlopen(urllib.parse(marathon_url+welder_url),data={}).read())
+			content = json.loads(urllib2.urlopen(urllib.parse.urlparse(marathon_url+welder_url),data={}).read())
 			if "callbackUrl" not in content:
 				print "Error installing the marathon callback",content
 		if self._args.cron_job:
