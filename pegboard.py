@@ -953,7 +953,7 @@ if __name__ == "__main__":
 	parser.add_argument('action', choices=['update','install','slave','start','stop','restart','internal','external'])
 	args = parser.parse_args()
 
-	if args.action == "install" and not (args.template_frontend and args.template_backend and args.template_internal and args.template_general):
+	if args.action == "install" and not (args.template_frontend and args.template_backend and args.template_tcp and args.template_general):
 		print "You need to specify the templates to use in the installation"
 		sys.exit(1)
 	
