@@ -888,7 +888,7 @@ class CommandManager:
 		os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
 		# Create all the dirtree structure in the key/value service
-		self.bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general,args.subnet_dns,args.path_prefix,args.marathon,args.port)
+		self._bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general,args.subnet_dns,args.path_prefix,args.marathon,args.port)
 		
 		ip = socket.gethostbyname(socket.gethostname())
 		self._bridge.addStandaloneApp("service-discovery",False,"80",[ip+":"+str(args.port)])
