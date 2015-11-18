@@ -735,7 +735,7 @@ class HttpRouter:
 		form = self._getContent(headers,rfile)	
 		print "PEPEPEPEPE",form
 
-		self.bridge.generateConfigContent()
+		conf = self.bridge.generateConfigContent()
 		self.bridge.saveConfig(conf)
 		self.bridge.cleanPids()
 		return { "success": True }
@@ -901,10 +901,13 @@ class CommandManager:
 		if self._args.marathon:
 			marathon = self._args.marathon.split(",")[0]
 			service_discovery = self._bridge.getInternal("service-discovery")
-			marathon_url = marathon + "/v2/eventSubscriptions?callbackUrl=";
+			marathon_url = "http://" + marathon + "/v2/eventSubscriptions?callbackUrl=";
 			callback_url = service_discovery + "/marathon/update";
 			
-			content = json.loads(urllib2.urlopen(marathon_url+callback_url,data={}).read())
+			req = urllib2.Request(marathon_url+urllib.quote_plus(callback_url))
+			req.get_method = lambda: "POST"
+			response = urllib2.urlopen(req)
+			content = json.load(response)
 			if "callbackUrl" not in content:
 				print "Error installing the marathon callback",content
 		if self._args.cron_job:
@@ -913,7 +916,7 @@ class CommandManager:
 		self.update()
 
 	def update(self):
-		self._bridge.generateConfigContent()
+		conf = self._bridge.generateConfigContent()
 		if self._bridge.master:
 			self._bridge.saveConfig(conf)
 			self._bridge.cleanPids()
