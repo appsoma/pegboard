@@ -251,21 +251,26 @@ Key/value management
 
 class KeyManager:
 	__metaclass__ = ABCMeta
+	haproxy_pids = name+"/haproxy.pids"
 	config_template = name+"/haproxy.cfg"
 	config_port_template = name+"/haproxy_port.cfg"
-	config_frontends_template = name+"/haproxy_frontends.cfg"
+	config_frontend_template = name+"/haproxy_frontends.cfg"
 	config_backend_template = name+"/haproxy_backend.cfg"
 	extra_services_directory = name+"/services"
+	master = name+"/master"
+	slaves_directory = name+"/slaves"
 	subnet_dns = name+"/subnet_dns"
 	path_prefix = name+"/path_prefix"
-	cronjob_conf_file = name+"/marathons"
-	backends_directory = "internals"
-	externals_directory = "externals"
+	marathon = name+"/marathons"
+	internals_directory = name+"/internals"
+	externals_directory = name+"/externals"
 
 	@abstractmethod
 	def get(self,key): pass
 	@abstractmethod
 	def set(self,key,data): pass
+	@abstractmethod
+	def mkdir(self,key): pass
 	def close(self): pass
 
 class Etcd(KeyManager):
@@ -276,6 +281,8 @@ class Etcd(KeyManager):
 		return value["value"] if "value" in value else value["nodes"]
 	def set(self,key,data):
 		return self._request(os.path.join("/keys",key),urllib.urlencode({ "value": data }))
+	def mkdir(self,key):
+		return self._request(os.path.join("/keys",key),urllib.urlencode({ "dir": True }))
 	def _request(self,url,data=None):
 		req = urllib2.Request(self.api_url+url, data)
 		if data:
@@ -304,6 +311,9 @@ class Zookeeper(KeyManager):
 		except Exception as e:
 			self.zk.create(key, data.encode('utf-8'))
 
+	def mkdir(self,key):
+		self.set(key,"")
+
 	def close(self):
 		self.zk.stop()
 		self.zk.close()
@@ -320,7 +330,7 @@ class Haproxy:
 	config_file = "/etc/haproxy/haproxy.cfg"
 	pid_file = "/var/run/haproxy-private.pid"
 	@classmethod
-	def restart(cls):
+	def currentPids(cls):
 		pids = False
 		try:
 			with open(cls.pid_file,"r") as f:
@@ -328,10 +338,17 @@ class Haproxy:
 		except IOError as e:
 			# ACB: File may not exist
 			if(e.errno != 2): raise e
-
+		
+	@classmethod
+	def restart(cls):
+		pids = Haproxy.currentPids()
 		pids_string = (" -sf "+pids) if pids else ""
 
-		return subprocess.Popen("/bin/bash -c '/usr/sbin/haproxy -f "+cls.config_file+" -p "+cls.pid_file+pids_string+"'", shell=True, stdout=subprocess.PIPE)
+		subprocess.Popen("/bin/bash -c '/usr/sbin/haproxy -f "+cls.config_file+" -p "+cls.pid_file+pids_string+"'", shell=True, stdout=subprocess.PIPE)
+		time.sleep(2)
+		
+		return Haproxy.currentPids()
+
 	@classmethod
 	def writeConfig(cls,content):
 		try:
@@ -371,6 +388,7 @@ Bridge management
 """
 
 class Bridge:
+	master = False
 	def __init__(self,keymanager):
 		self._kv = keymanager
 		self.portManager = PortManagement()
@@ -379,8 +397,38 @@ class Bridge:
 	def kv(self):
 		return self._kv
 
-	def createDirtree(tpl_frontend,tpl_backend,tpl_tcp,tpl_general):
-		
+	def createDirtree(tpl_frontend,tpl_backend,tpl_tcp,tpl_general,subnet_dns,path_prefix,marathons,port):
+		with open(tpl_frontend,"r") as f:
+			tpl_frontend = f.read()
+		with open(tpl_backend,"r") as f:
+			tpl_backend = f.read()
+		with open(tpl_tcp,"r") as f:
+			tpl_tcp = f.read()
+		with open(tpl_general,"r") as f:
+			tpl_general = f.read()
+
+		self._kv.mkdir(name)
+		self._kv.mkdir(KeyManager.internals_directory)
+		self._kv.mkdir(KeyManager.externals_directory)
+		self._kv.mkdir(KeyManager.extra_services_directory)
+		self._kv.mkdir(KeyManager.slaves_directory)
+		self._kv.set(KeyManager.haproxy_pids,"[]")
+		self._kv.set(KeyManager.config_template,tpl_general)
+		self._kv.set(KeyManager.config_port_template,tpl_tcp)
+		self._kv.set(KeyManager.config_frontend_template,tpl_frontend)
+		self._kv.set(KeyManager.config_backend_template,tpl_backend)
+		self._kv.set(KeyManager.master,socket.gethostbyname(socket.gethostname())+":"+str(port))
+		if subnet_dns:
+			self._kv.set(KeyManager.subnet_dns,subnet_dns)
+		if path_prefix:
+			self._kv.set(KeyManager.path_prefix,path_prefix)
+		if marathons:
+			self._kv.set(KeyManager.marathon,marathons)
+
+	def registerSlave(self):
+		id = uuid.uuid1()
+		ip = socket.gethostbyname(socket.gethostname())
+		self._kv.set(KeyManager.slaves_directory+"/"+id,ip)
 
 	def addStandaloneApp(self,app_name,url,service_port,servers):
 		if not url:
@@ -393,11 +441,19 @@ class Bridge:
 			"servers": servers
 		}))
 
+	def addHostToApp(self,app_name,host):
+		app = self.getApp(app_name)
+		app_path = KeyManager.extra_services_directory + "/" + app_name
+
+		if app:
+			app["servers"].append(host)
+			self._kv.set(app_path,json.dumps(app))
+
 	def getApp(self,app_name):
 		app = self._kv.get(os.path.join(KeyManager.extra_services_directory,app_name))
 		
 		if not app:
-			masters = self._kv.get(KeyManager.cronjob_conf_file).split("\n")
+			masters = self._kv.get(KeyManager.marathon).split("\n")
 			for master in masters:
 				req = urllib2.Request("http://"+master+"/v2/apps/"+app_name+"?embed=apps.tasks")
 				response = json.loads(urllib2.urlopen(req).read())["app"]
@@ -427,7 +483,7 @@ class Bridge:
 		
 
 	def generateConfigContent(self):
-		masters = self._kv.get(KeyManager.cronjob_conf_file).split("\n")
+		masters = self._kv.get(KeyManager.marathon).split("\n")
 
 		apps = self.getApps()
 
@@ -497,7 +553,7 @@ class Bridge:
 		return content
 
 	def _httpApps(self,apps):
-		frontends = self._kv.get(KeyManager.config_frontends_template)
+		frontends = self._kv.get(KeyManager.config_frontend_template)
 		backend_template = self._kv.get(KeyManager.config_backend_template)
 		acls = []
 		use_backends = []
@@ -549,14 +605,45 @@ class Bridge:
 		apps = frontends.replace("$acls","\n".join(acls)).replace("$use_backends","\n".join(use_backends)).replace("$internals","\n".join(internals)).split("\n") + backends
 		return apps
 
+	def saveConfig(self,content):
+		if not master: return
+		old = Haproxy.readConfig()
+
+		if old != content:
+			Haproxy.writeConfig()
+			pids = Haproxy.restart()
+			valid_pids = json.loads(self._kv.get(KeyManager.haproxy_pids))
+			valid_pids += pids.split(" ")
+			self._kv.set(KeyManager.haproxy_pids,json.dumps(valid_pids))
+
+	def cleanPids(self):
+		if not master: return
+		valid_pids = json.loads(self._kv.get(KeyManager.haproxy_pids))
+		p = subprocess.Popen(['pgrep', '-l' , 'haproxy'], stdout=subprocess.PIPE)
+		out, err = p.communicate()
+		for line in out.splitlines():
+			line = bytes.decode(line)
+			pid = int(line.split(None, 1)[0])
+			if pid not in valid_pids:
+				os.kill(pid, signal.SIGKILL)
+	
+	def masterUpdate(self):
+		master_url = self._kv.get(KeyManager.master)
+		update_url = "/apps/update"
+		result = json.loads(urllib2.urlopen(urllib.parse(master_url+update_url)).read())
+		if "success" in result and result["success"]:
+			return True
+		else:
+			return False
+	
 	def getExternal(self,app_name):
 		return self._kv.get(os.path.join(KeyManager.externals_directory,app_name))
 
 	def getInternal(self,app_name):
-		return self._kv.get(os.path.join(KeyManager.backends_directory,app_name))
+		return self._kv.get(os.path.join(KeyManager.internals_directory,app_name))
 
 	def _saveEndpoints(self,app_name,backend,external):
-		self._kv.set(os.path.join(KeyManager.backends_directory,app_name),backend)
+		self._kv.set(os.path.join(KeyManager.internals_directory,app_name),backend)
 		self._kv.set(os.path.join(KeyManager.externals_directory,app_name),external)
 
 """
@@ -615,12 +702,24 @@ class HttpRouter:
 			return { "Error": "You should post app_name, url, service_port and servers values" }
 
 		self.bridge.addStandaloneApp(form["app_name"],form["url"],form["service_port"],form["servers"].split(","))
-		self.bridge.generateConfigContent()
+		conf = self.bridge.generateConfigContent()
+		if self.bridge.master:
+			self.bridge.saveConfig(conf)
+			self.bridge.cleanPids()
+		else:
+			if not self.bridge.masterUpdate():
+				print "ERROR UPDATING MASTER"
 		return { "success": True }
 	
 	# GET /apps/update
 	def apps_update(self,path,headers,rfile):
-		self.bridge.generateConfigContent()
+		conf = self.bridge.generateConfigContent()
+		if self.bridge.master:
+			self.bridge.saveConfig(conf)
+			self.bridge.cleanPids()
+		else:
+			if not self.bridge.masterUpdate():
+				print "ERROR UPDATING MASTER"
 		return { "success": True }
 
 	# GET /marathon/update
@@ -632,6 +731,8 @@ class HttpRouter:
 		print "PEPEPEPEPE",form
 
 		self.bridge.generateConfigContent()
+		self.bridge.saveConfig(conf)
+		self.bridge.cleanPids()
 		return { "success": True }
 
 	def _getContent(self,headers,rfile):
@@ -712,7 +813,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 		return
 
 class HTTPServerDaemon(Daemon):
-	def run(self,zookeeper,port):
+	def run(self,zookeeper,port,master=False):
 		# ACB: For some reason, I can't the bridge created on the other thread
 		if zookeeper:
 			kv = Zookeeper(zookeeper)
@@ -731,7 +832,8 @@ class HTTPServerDaemon(Daemon):
 		signal.signal(signal.SIGINT, sigtermhandler)
 
 		HttpHandler.router.bridge = Bridge(kv)
-		self._server = HTTPServer(('localhost', port), HttpHandler)
+		HttpHandler.router.bridge.master = master
+		self._server = HTTPServer(('0.0.0.0', port), HttpHandler)
 		self._server.serve_forever()
 
 
@@ -756,9 +858,8 @@ class CommandManager:
 		return method(*args)
 
 	def start(self):
-		self._bridge.addStandaloneApp("service-discovery",False,"80",["127.0.0.1:"+str(args.port)])
 		http_server = HTTPServerDaemon(self._args.http_pid_file)
-		http_server.start(self._args.zookeeper,self._args.port)
+		http_server.start(self._args.zookeeper,self._args.port,self.bridge.master)
 
 	def stop(self):
 		http_server = HTTPServerDaemon(self._args.http_pid_file)
@@ -772,6 +873,11 @@ class CommandManager:
 			http_server = HTTPServerDaemon(self._args.http_pid_file)
 			http_server.restart()
 
+	def slave(self):
+		self.bridge.registerSlave()
+		ip = socket.gethostbyname(socket.gethostname())
+		self.bridge.addHostToApp("service-discovery",ip+":"+str(args.port))
+
 	def install(self):
 		script_path = self._args.installation_folder + script
 		try:
@@ -780,6 +886,9 @@ class CommandManager:
 			if(e.errno!=17): raise e
 		shutil.copyfile(script,script_path)
 		os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+		
+		ip = socket.gethostbyname(socket.gethostname())
+		self._bridge.addStandaloneApp("service-discovery",False,"80",[ip+":"+str(args.port)])
 
 		if self._args.marathon:
 			marathon = self._args.marathon.split(",")[0]
@@ -794,12 +903,18 @@ class CommandManager:
 			Cron.createCronJob("pegboard",self._cronContent(script_path))
 
 		# Create all the dirtree structure in the key/value service
-		self.bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general)
+		self.bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general,args.subnet_dns,args.path_prefix,args.marathon,args.port)
 
 		self.update()
 
 	def update(self):
 		self._bridge.generateConfigContent()
+		if self._bridge.master:
+			self._bridge.saveConfig(conf)
+			self._bridge.cleanPids()
+		else:
+			if not self.bridge.masterUpdate():
+				print "ERROR UPDATING MASTER"
 
 	def internal(self):
 		if not self._args.app_name:
@@ -830,25 +945,36 @@ if __name__ == "__main__":
 	parser.add_argument("--log-file", help="Log file location")
 	parser.add_argument("--port", help="Port of the web service",type=int)
 	parser.add_argument("--cron-job", help="Update using a cron job", action='store_true')
-	parser.add_argument("--template-frontend", help="Template for http frontends", action='store_true')
-	parser.add_argument("--template-backend", help="Template for http backends", action='store_true')
-	parser.add_argument("--template-tcp", help="Template for tcp jobs", action='store_true')
-	parser.add_argument("--template-general", help="Template for general configuration", action='store_true')
-	parser.add_argument('action', choices=['update','install','start','stop','restart','internal','external'])
+	parser.add_argument("--template-frontend", help="Template for http frontends")
+	parser.add_argument("--template-backend", help="Template for http backends")
+	parser.add_argument("--template-tcp", help="Template for tcp jobs")
+	parser.add_argument("--template-general", help="Template for general configuration")
+	parser.add_argument("--subnet-dns", help="Use a subnet dns record")
+	parser.add_argument("--path-prefix", help="Use a path prefix")
+	parser.add_argument('action', choices=['update','install','slave','start','stop','restart','internal','external'])
 	args = parser.parse_args()
 
-	if args.action == "install" and 
-		not (args.template_frontend and args.template_backend and args.template_internal and args.template_general):
+	if args.action == "install" and not (args.template_frontend and args.template_backend and args.template_internal and args.template_general):
 		print "You need to specify the templates to use in the installation"
 		sys.exit(1)
 	
 	if not args.installation_folder:
 		args.installation_folder = script_dir
 
+	if not args.port:
+		args.port = 2288
+
 	if args.zookeeper:
 		kv = Zookeeper(args.zookeeper)
 	else:
 		kv = Etcd()
+
+	master = False
+	try:	
+		master_host = self._kv.get(KeyManager.master)
+		master = master_host == socket.gethostbyname(socket.gethostname())+":"+str(args.port)
+	except:
+		if args.action == "install": master = True
 
 	if not args.log_file:
 		args.log_file = "/var/log/pegboard.log"
@@ -859,10 +985,9 @@ if __name__ == "__main__":
 	if not args.http_pid_file:
 		args.http_pid_file = "/var/run/pegboard_server.pid"
 
-	if not args.port:
-		args.port = 2288
-
-	commandManager = CommandManager(Bridge(kv),args)
+	bridge = Bridge(kv)
+	bridge.master = master
+	commandManager = CommandManager(,args)
 
 	commandManager.doCommand(args.action)
 
