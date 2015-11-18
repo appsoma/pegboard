@@ -938,7 +938,6 @@ if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description='Bridge between marathon and haproxy')
 	parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts")
 	parser.add_argument("--marathon", help="To use marathon, should pass the masters list comma separated")
-	parser.add_argument("--pid-file", help="Pid file of the updater daemon")
 	parser.add_argument("--http-pid-file", help="Pid file of the http daemon")
 	parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir)
 	parser.add_argument("--app-name", help="App name in which perform the action")
@@ -987,7 +986,7 @@ if __name__ == "__main__":
 
 	bridge = Bridge(kv)
 	bridge.master = master
-	commandManager = CommandManager(,args)
+	commandManager = CommandManager(bridge,args)
 
 	commandManager.doCommand(args.action)
 
