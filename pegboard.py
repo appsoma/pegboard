@@ -904,7 +904,7 @@ class CommandManager:
 			marathon_url = marathon + "/v2/eventSubscriptions?callbackUrl=";
 			callback_url = service_discovery + "/marathon/update";
 			
-			content = json.loads(urllib2.urlopen(urlparse.urlparse(marathon_url+welder_url),data={}).read())
+			content = json.loads(urllib2.urlopen(urlparse.urlparse(marathon_url+callback_url),data={}).read())
 			if "callbackUrl" not in content:
 				print "Error installing the marathon callback",content
 		if self._args.cron_job:
