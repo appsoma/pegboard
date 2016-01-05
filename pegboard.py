@@ -887,9 +887,9 @@ class CommandManager:
 			http_server.restart()
 
 	def slave(self):
-		self.bridge.registerSlave()
+		self._bridge.registerSlave()
 		ip = socket.gethostbyname(socket.gethostname())
-		self.bridge.addHostToApp("service-discovery",ip+":"+str(args.port))
+		self._bridge.addHostToApp("service-discovery",ip+":"+str(args.port))
 
 	def install(self):
 		script_path = self._args.installation_folder + script
