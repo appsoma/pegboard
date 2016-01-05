@@ -3,7 +3,6 @@ import sys
 import stat
 import os
 import re
-import cgi
 import shutil
 import subprocess
 import urlparse
@@ -17,7 +16,7 @@ import signal
 import time
 import atexit
 import traceback
-from abc import ABCMeta,abstractmethod
+from abc import ABCMeta, abstractmethod
 from kazoo.client import KazooClient
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 
@@ -28,11 +27,13 @@ name = ".".join(script.split(".")[:-1])
 Linux Daemon, based on https://github.com/serverdensity/python-daemon/blob/master/daemon.py
 """
 
+
 class Daemon(object):
     """
     A generic daemon class.
     Usage: subclass the Daemon class and override the run() method
     """
+
     def __init__(self, pidfile, stdin=os.devnull,
                  stdout=os.devnull, stderr=os.devnull,
                  home_dir='.', umask=022, verbose=1):
@@ -165,7 +166,7 @@ class Daemon(object):
             while 1:
                 os.kill(pid, signal.SIGTERM)
                 time.sleep(0.1)
-                i = i + 1
+                i += 1
                 if i % 10 == 0:
                     os.kill(pid, signal.SIGHUP)
         except OSError, err:
@@ -218,102 +219,124 @@ class Daemon(object):
         """
         raise NotImplementedError
 
+
 """
 Port Management
 """
 
+
 class PortManagement:
     def __init__(self):
         self.ports = []
-        self.available_ports = [ i for i in range(1024, 49151) if i not in self.ports and self.available(i) ]
-    def check_port(self,port):
+        self.available_ports = [i for i in range(1024, 49151) if i not in self.ports and self.available(i)]
+
+    def check_port(self, port):
         return port in self.ports
+
     def new_port(self):
         if len(self.available_ports) == 0: return False
 
         choosen = random.choice(self.available_ports)
         self.ports.append(choosen)
         return choosen
-    def choose_port(self,port):
+
+    def choose_port(self, port):
         self.ports.append(port)
         self.available_ports.remove(port)
-    def available(self,i):
+
+    def available(self, i):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            result = sock.bind(('127.0.0.1',i))
-        except:
+            sock.bind(('127.0.0.1', i))
+        except IOError:
             return False
         sock.close()
         return True
+
 
 """
 Key/value management
 """
 
+
 class KeyManager:
+    def __init__(self):
+        pass
+
     __metaclass__ = ABCMeta
-    haproxy_pids = name+"/haproxy.pids"
-    config_template = name+"/haproxy.cfg"
-    config_tcp_template = name+"/haproxy_tcp.cfg"
-    config_frontend_template = name+"/haproxy_frontends.cfg"
-    config_backend_template = name+"/haproxy_backend.cfg"
-    extra_services_directory = name+"/services"
-    master = name+"/master"
-    slaves_directory = name+"/slaves"
-    subnet_dns = name+"/subnet_dns"
-    path_prefix = name+"/path_prefix"
-    marathon = name+"/marathons"
-    internals_directory = name+"/internals"
-    externals_directory = name+"/externals"
+    haproxy_pids = name + "/haproxy.pids"
+    config_template = name + "/haproxy.cfg"
+    config_tcp_template = name + "/haproxy_tcp.cfg"
+    config_frontend_template = name + "/haproxy_frontends.cfg"
+    config_backend_template = name + "/haproxy_backend.cfg"
+    extra_services_directory = name + "/services"
+    master = name + "/master"
+    slaves_directory = name + "/slaves"
+    subnet_dns = name + "/subnet_dns"
+    path_prefix = name + "/path_prefix"
+    marathon = name + "/marathons"
+    internals_directory = name + "/internals"
+    externals_directory = name + "/externals"
 
     @abstractmethod
-    def get(self,key): pass
+    def get(self, key): pass
+
     @abstractmethod
-    def set(self,key,data): pass
+    def set(self, key, data): pass
+
     @abstractmethod
-    def mkdir(self,key): pass
+    def mkdir(self, key): pass
+
     def close(self): pass
+
 
 class Etcd(KeyManager):
     def __init__(self):
         self.api_url = "http://127.0.0.1:2379/v2"
-    def get(self,key):
-        value = self._request(os.path.join("/keys",key))["node"]
+
+    def get(self, key):
+        value = self._request(os.path.join("/keys", key))["node"]
         return value["value"] if "value" in value else value["nodes"]
-    def set(self,key,data):
-        return self._request(os.path.join("/keys",key),urllib.urlencode({ "value": data }))
-    def mkdir(self,key):
-        return self._request(os.path.join("/keys",key),urllib.urlencode({ "dir": True }))
-    def _request(self,url,data=None):
-        req = urllib2.Request(self.api_url+url, data)
+
+    def set(self, key, data):
+        return self._request(os.path.join("/keys", key), urllib.urlencode({"value": data}))
+
+    def mkdir(self, key):
+        return self._request(os.path.join("/keys", key), urllib.urlencode({"dir": True}))
+
+    def _request(self, url, data=None):
+        req = urllib2.Request(self.api_url + url, data)
         if data:
             req.get_method = lambda: "PUT"
         response = urllib2.urlopen(req)
         return json.load(response)
 
+
 class Zookeeper(KeyManager):
-    def __init__(self,hosts):
+    def __init__(self, hosts):
         self._hosts = hosts
         self.zk = KazooClient(hosts=hosts)
         self.zk.start()
-    def get(self,key):
+
+    def get(self, key):
         result = self.zk.get(key)[0]
         if result == "":
             result = []
             children = self.zk.get_children(key)
             for i in children:
-                result.append({'name': i, 'value': self.zk.get(os.path.join(key, i))[0]} )
+                result.append({'name': i, 'value': self.zk.get(os.path.join(key, i))[0]})
             return result
         else:
             return self.zk.get(key)[0]
-    def set(self,key,data):
+
+    def set(self, key, data):
         try:
             self.zk.set(key, data.encode('utf-8'))
-        except Exception as e:
+        except:
             self.zk.create(key, data.encode('utf-8'))
 
-    def mkdir(self,key):
-        self.set(key,"")
+    def mkdir(self, key):
+        self.set(key, "")
 
     def close(self):
         self.zk.stop()
@@ -323,75 +346,91 @@ class Zookeeper(KeyManager):
     def hosts(self):
         return self._hosts
 
+
 """
 HAPROXY management
 """
 
+
 class Haproxy:
+    def __init__(self):
+        pass
+
     config_file = "/etc/haproxy/haproxy.cfg"
     pid_file = "/var/run/haproxy-private.pid"
+
     @classmethod
     def currentPids(cls):
         pids = False
         try:
-            with open(cls.pid_file,"r") as f:
-                pids = f.read().replace("\n"," ")
+            with open(cls.pid_file, "r") as f:
+                pids = f.read().replace("\n", " ")
         except IOError as e:
             # ACB: File may not exist
-            if(e.errno != 2): raise e
+            if e.errno != 2: raise e
         return pids
 
     @classmethod
     def restart(cls):
         pids = Haproxy.currentPids()
-        pids_string = (" -sf "+pids) if pids else ""
+        pids_string = (" -sf " + pids) if pids else ""
 
-        subprocess.Popen("/bin/bash -c '/usr/sbin/haproxy -f "+cls.config_file+" -p "+cls.pid_file+pids_string+"'", shell=True, stdout=subprocess.PIPE)
+        subprocess.Popen(
+            "/bin/bash -c '/usr/sbin/haproxy -f " + cls.config_file + " -p " + cls.pid_file + pids_string + "'",
+            shell=True, stdout=subprocess.PIPE)
         time.sleep(2)
 
         return Haproxy.currentPids()
 
     @classmethod
-    def writeConfig(cls,content):
+    def writeConfig(cls, content):
         try:
-            with open(cls.config_file,"w") as f:
+            with open(cls.config_file, "w") as f:
                 f.write(content)
         except:
             raise EnvironmentError("Can't write config file, please check haproxy installation.")
+
     @classmethod
     def readConfig(cls):
-        content = ""
         try:
-            with open(cls.config_file,"r") as f:
+            with open(cls.config_file, "r") as f:
                 content = f.read()
         except:
             raise EnvironmentError("Can't write config file, please check haproxy installation.")
         return content
 
+
 """
 CRON management
 """
 
+
 class Cron:
+    def __init__(self):
+        pass
+
     cronjob_dir = "/etc/cron.d/"
 
     @classmethod
-    def createCronJob(cls,cron_file,content):
+    def createCronJob(cls, cron_file, content):
         try:
             os.mkdir(Cron.cronjob_dir)
         except OSError as e:
-            if(e.errno!=17): raise e
+            if e.errno != 17: raise e
 
-        with open(Cron.cronjob_dir+cron_file,"w") as f:
+        with open(Cron.cronjob_dir + cron_file, "w") as f:
             f.write(content)
+
 
 """
 Bridge management
 """
 
+
 class Bridge:
     master = False
-    def __init__(self,keymanager):
+
+    def __init__(self, keymanager):
         self._kv = keymanager
         self.portManager = PortManagement()
 
@@ -399,14 +438,14 @@ class Bridge:
     def kv(self):
         return self._kv
 
-    def createDirtree(self,tpl_frontend,tpl_backend,tpl_tcp,tpl_general,subnet_dns,path_prefix,marathons,port):
-        with open(tpl_frontend,"r") as f:
+    def createDirtree(self, tpl_frontend, tpl_backend, tpl_tcp, tpl_general, subnet_dns, path_prefix, marathons, port):
+        with open(tpl_frontend, "r") as f:
             tpl_frontend = f.read()
-        with open(tpl_backend,"r") as f:
+        with open(tpl_backend, "r") as f:
             tpl_backend = f.read()
-        with open(tpl_tcp,"r") as f:
+        with open(tpl_tcp, "r") as f:
             tpl_tcp = f.read()
-        with open(tpl_general,"r") as f:
+        with open(tpl_general, "r") as f:
             tpl_general = f.read()
 
         self._kv.mkdir(name)
@@ -414,27 +453,27 @@ class Bridge:
         self._kv.mkdir(KeyManager.externals_directory)
         self._kv.mkdir(KeyManager.extra_services_directory)
         self._kv.mkdir(KeyManager.slaves_directory)
-        self._kv.set(KeyManager.haproxy_pids,"[]")
-        self._kv.set(KeyManager.config_template,tpl_general)
-        self._kv.set(KeyManager.config_tcp_template,tpl_tcp)
-        self._kv.set(KeyManager.config_frontend_template,tpl_frontend)
-        self._kv.set(KeyManager.config_backend_template,tpl_backend)
-        self._kv.set(KeyManager.master,socket.gethostbyname(socket.gethostname())+":"+str(port))
+        self._kv.set(KeyManager.haproxy_pids, "[]")
+        self._kv.set(KeyManager.config_template, tpl_general)
+        self._kv.set(KeyManager.config_tcp_template, tpl_tcp)
+        self._kv.set(KeyManager.config_frontend_template, tpl_frontend)
+        self._kv.set(KeyManager.config_backend_template, tpl_backend)
+        self._kv.set(KeyManager.master, socket.gethostbyname(socket.gethostname()) + ":" + str(port))
         if subnet_dns:
-            self._kv.set(KeyManager.subnet_dns,subnet_dns)
+            self._kv.set(KeyManager.subnet_dns, subnet_dns)
         if path_prefix:
-            self._kv.set(KeyManager.path_prefix,path_prefix)
+            self._kv.set(KeyManager.path_prefix, path_prefix)
         if marathons:
-            self._kv.set(KeyManager.marathon,marathons)
+            self._kv.set(KeyManager.marathon, marathons)
 
     def registerSlave(self):
         id = uuid.uuid1()
         ip = socket.gethostbyname(socket.gethostname())
-        self._kv.set(KeyManager.slaves_directory+"/"+id,ip)
+        self._kv.set(KeyManager.slaves_directory + "/" + id, ip)
 
-    def addStandaloneApp(self,app_name,url,port,servers):
+    def addStandaloneApp(self, app_name, url, port, servers):
         if not url:
-            url = app_name+self._kv.get(KeyManager.subnet_dns)
+            url = app_name + self._kv.get(KeyManager.subnet_dns)
         app_path = KeyManager.extra_services_directory + "/" + app_name
         service_port = self.portManager.new_port()
         if not service_port:
@@ -447,23 +486,23 @@ class Bridge:
             "service_port": port,
             "servers": servers
         }))
-        self._saveEndpoints(app_name,socket.gethostbyname(socket.gethostname())+":"+str(service_port),url)
+        self._saveEndpoints(app_name, socket.gethostbyname(socket.gethostname()) + ":" + str(service_port), url)
 
-    def addHostToApp(self,app_name,host):
+    def addHostToApp(self, app_name, host):
         app = self.getApp(app_name)
         app_path = KeyManager.extra_services_directory + "/" + app_name
 
         if app:
             app["servers"].append(host)
-            self._kv.set(app_path,json.dumps(app))
+            self._kv.set(app_path, json.dumps(app))
 
-    def getApp(self,app_name):
-        app = self._kv.get(os.path.join(KeyManager.extra_services_directory,app_name))
+    def getApp(self, app_name):
+        app = self._kv.get(os.path.join(KeyManager.extra_services_directory, app_name))
 
         if not app:
             masters = self._kv.get(KeyManager.marathon).split("\n")
             for master in masters:
-                req = urllib2.Request("http://"+master+"/v2/apps/"+app_name+"?embed=apps.tasks")
+                req = urllib2.Request("http://" + master + "/v2/apps/" + app_name + "?embed=apps.tasks")
                 response = json.loads(urllib2.urlopen(req).read())["app"]
                 if "app" in response:
                     return response["app"]
@@ -475,10 +514,6 @@ class Bridge:
     def getApps(self):
         apps = {}
         apps_data = self._kv.get(KeyManager.extra_services_directory)
-        try:
-            prefix = self._kv.get(path_prefix)
-        except:
-            prefix = ""
         for i in apps_data:
             s = json.loads(i["value"])
             if "marathon" in s and s["marathon"]:
@@ -489,7 +524,6 @@ class Bridge:
                 print "ERROR. Entry", i, "in", KeyManager.extra_services_directory, "lacks app_name", i["value"]
         return apps
 
-
     def generateConfigContent(self):
         masters = self._kv.get(KeyManager.marathon).split("\n")
 
@@ -499,7 +533,7 @@ class Bridge:
         tcp_apps = {}
         content = self.getConfigHeader().split("\n")
         for master in masters:
-            req = urllib2.Request("http://"+master+"/v2/apps?embed=apps.tasks")
+            req = urllib2.Request("http://" + master + "/v2/apps?embed=apps.tasks")
             response = urllib2.urlopen(req)
             marathon_apps = json.loads(response.read())["apps"]
             for app in marathon_apps:
@@ -507,30 +541,38 @@ class Bridge:
 
                 http_ports = []
                 if "HAPROXY_HTTP" in app["env"]:
-                    http_ports = map(int,app["env"]["HAPROXY_HTTP"].split(","))
+                    http_ports = map(int, app["env"]["HAPROXY_HTTP"].split(","))
 
                 for i in range(len(app["ports"])):
                     service_port = app["ports"][i]
-                    service_name = app_name+"-"+str(service_port)
-                    servers = [ t["host"]+":"+str(t["ports"][i]) for t in app["tasks"] ]
+                    service_name = app_name + "-" + str(service_port)
+                    servers = [t["host"] + ":" + str(t["ports"][i]) for t in app["tasks"]]
 
                     if i in http_ports and service_name not in http_apps:
                         http_apps[service_name] = {
                             "strip_path": False,
-                            "url": app_name+self._kv.get(KeyManager.subnet_dns),
+                            "url": app_name + self._kv.get(KeyManager.subnet_dns),
                             "app_name": service_name,
                             "marathon": True
                         }
 
                     if service_name in http_apps:
-                        http_apps[service_name] = { "url": apps[service_name]["url"], "app_name": service_name, "service_port": str(service_port), "servers": servers, "strip_path": apps[service_name]["strip_path"] if "strip_path" in apps[service_name] else True, "internal_port": apps[service_name]["internal_port"] if "internal_port" in apps[service_name] else False, "marathon": True }
+                        http_apps[service_name] = {"url": apps[service_name]["url"], "app_name": service_name,
+                                                   "service_port": str(service_port), "servers": servers,
+                                                   "strip_path": apps[service_name]["strip_path"] if "strip_path" in
+                                                                                                     apps[
+                                                                                                         service_name] else True,
+                                                   "internal_port": apps[service_name][
+                                                       "internal_port"] if "internal_port" in apps[
+                                                       service_name] else False, "marathon": True}
                     else:
                         if self.portManager.check_port(service_port):
                             service_port = self.portManager.new_port()
                             if not service_port:
                                 raise EnvironmentError("No open port available")
                             self.portManager.choose_port(service_port)
-                        tcp_apps[app_name] = { "app_name": app_name+"-"+str(service_port), "service_port": str(service_port), "servers": servers }
+                        tcp_apps[app_name] = {"app_name": app_name + "-" + str(service_port),
+                                              "service_port": str(service_port), "servers": servers}
 
         content += self._tcpApps(tcp_apps) + self._httpApps(http_apps)
         return "\n".join(content)
@@ -538,7 +580,7 @@ class Bridge:
     def getConfigHeader(self):
         return self._kv.get(KeyManager.config_template)
 
-    def _tcpApps(self,apps):
+    def _tcpApps(self, apps):
         content = []
 
         try:
@@ -546,21 +588,22 @@ class Bridge:
         except:
             return content
 
-        for app_name,app in apps.items():
-            server_config = self._kv.get(KeyManager.config_tcp_template).replace("$app_name",app["app_name"]).replace("$service_port",app["service_port"]).split("\n")
+        for app_name, app in apps.items():
+            server_config = self._kv.get(KeyManager.config_tcp_template).replace("$app_name", app["app_name"]).replace(
+                "$service_port", app["service_port"]).split("\n")
             for i in range(len(app["servers"])):
                 server = app["servers"][i]
                 if server.strip() == "": continue
-                server_config.append("  server "+app_name+"-"+str(i)+" "+server+" check")
+                server_config.append("  server " + app_name + "-" + str(i) + " " + server + " check")
 
-            backend = socket.gethostbyname(socket.gethostname())+":"+app["service_port"]
-            external = ip+":"+app["service_port"]
-            self._saveEndpoints(app_name,backend,external)
+            backend = socket.gethostbyname(socket.gethostname()) + ":" + app["service_port"]
+            external = ip + ":" + app["service_port"]
+            self._saveEndpoints(app_name, backend, external)
             content += server_config
 
         return content
 
-    def _httpApps(self,apps):
+    def _httpApps(self, apps):
         frontends = self._kv.get(KeyManager.config_frontend_template)
         backend_template = self._kv.get(KeyManager.config_backend_template)
         acls = []
@@ -568,24 +611,26 @@ class Bridge:
         internals = []
         backends = []
 
-        for app_name,app in apps.items():
+        for app_name, app in apps.items():
             if "servers" not in app or len(app["servers"]) == 0: continue
-            frontend = ""
-            if(app["url"][0] == "/"): frontend = "   acl "+app_name+" path_end -i "+app["url"]
-            else: frontend = "   acl "+app_name+" hdr(host) -i "+app["url"]
+            if app["url"][0] == "/":
+                frontend = "   acl " + app_name + " path_end -i " + app["url"]
+            else:
+                frontend = "   acl " + app_name + " hdr(host) -i " + app["url"]
 
             acls.append(frontend)
-            use_backends.append("use_backend srvs_"+app_name+"	if "+app_name)
+            use_backends.append("use_backend srvs_" + app_name + "	if " + app_name)
 
             servers = []
             for s in range(len(app["servers"])):
                 server = app["servers"][s]
                 if server.strip() == "": continue
-                servers.append("   server "+app_name+"-host"+str(s)+" "+server)
+                servers.append("   server " + app_name + "-host" + str(s) + " " + server)
 
-            tmp_backend = backend_template.replace("$app_name",app_name).replace("$servers","\n".join(servers))
+            tmp_backend = backend_template.replace("$app_name", app_name).replace("$servers", "\n".join(servers))
             if app["url"][0] == "/" and app["strip_path"]:
-                tmp_backend = tmp_backend.replace("$replace_req", "reqrep ^([^\ ]*\ /)"+app["url"][1:]+'[/]?(.*)	 \\1\\2')
+                tmp_backend = tmp_backend.replace("$replace_req",
+                                                  "reqrep ^([^\ ]*\ /)" + app["url"][1:] + '[/]?(.*)	 \\1\\2')
             else:
                 tmp_backend = tmp_backend.replace("$replace_req", "")
             backends += tmp_backend.split("\n")
@@ -602,18 +647,20 @@ class Bridge:
                 service_port = app["internal_port"]
 
             internals += [
-                "frontend internal-"+app_name,
-                "bind 0.0.0.0:"+str(service_port),
+                "frontend internal-" + app_name,
+                "bind 0.0.0.0:" + str(service_port),
                 "mode http",
-                "default_backend srvs_"+app_name
+                "default_backend srvs_" + app_name
             ]
 
-            self._saveEndpoints(app_name,socket.gethostbyname(socket.gethostname())+":"+str(service_port),app["url"])
+            self._saveEndpoints(app_name, socket.gethostbyname(socket.gethostname()) + ":" + str(service_port),
+                                app["url"])
 
-        apps = frontends.replace("$acls","\n".join(acls)).replace("$use_backends","\n".join(use_backends)).replace("$internals","\n".join(internals)).split("\n") + backends
+        apps = frontends.replace("$acls", "\n".join(acls)).replace("$use_backends", "\n".join(use_backends)).replace(
+            "$internals", "\n".join(internals)).split("\n") + backends
         return apps
 
-    def saveConfig(self,content):
+    def saveConfig(self, content):
         if not master: return
         old = Haproxy.readConfig()
 
@@ -621,13 +668,13 @@ class Bridge:
             Haproxy.writeConfig(content)
             pids = Haproxy.restart()
             valid_pids = json.loads(self._kv.get(KeyManager.haproxy_pids))
-            valid_pids += [ int(pid) for pid in pids.split(" ") if pid != "" ]
-            self._kv.set(KeyManager.haproxy_pids,json.dumps(valid_pids))
+            valid_pids += [int(pid) for pid in pids.split(" ") if pid != ""]
+            self._kv.set(KeyManager.haproxy_pids, json.dumps(valid_pids))
 
     def cleanPids(self):
         if not master: return
         valid_pids = json.loads(self._kv.get(KeyManager.haproxy_pids))
-        p = subprocess.Popen(['pgrep', '-l' , 'haproxy'], stdout=subprocess.PIPE)
+        p = subprocess.Popen(['pgrep', '-l', 'haproxy'], stdout=subprocess.PIPE)
         out, err = p.communicate()
         for line in out.splitlines():
             line = bytes.decode(line)
@@ -638,78 +685,83 @@ class Bridge:
     def masterUpdate(self):
         master_url = "http://" + self._kv.get(KeyManager.master)
         update_url = "/apps/update"
-        result = json.loads(urllib2.urlopen(master_url+update_url).read())
+        result = json.loads(urllib2.urlopen(master_url + update_url).read())
         if "success" in result and result["success"]:
             return True
         else:
             return False
 
-    def getExternal(self,app_name):
-        return self._kv.get(os.path.join(KeyManager.externals_directory,app_name))
+    def getExternal(self, app_name):
+        return self._kv.get(os.path.join(KeyManager.externals_directory, app_name))
 
-    def getInternal(self,app_name):
-        return self._kv.get(os.path.join(KeyManager.internals_directory,app_name))
+    def getInternal(self, app_name):
+        return self._kv.get(os.path.join(KeyManager.internals_directory, app_name))
 
-    def _saveEndpoints(self,app_name,backend,external):
-        self._kv.set(os.path.join(KeyManager.internals_directory,app_name),backend)
-        self._kv.set(os.path.join(KeyManager.externals_directory,app_name),external)
+    def _saveEndpoints(self, app_name, backend, external):
+        self._kv.set(os.path.join(KeyManager.internals_directory, app_name), backend)
+        self._kv.set(os.path.join(KeyManager.externals_directory, app_name), external)
+
 
 """
 HTTP server deamon
 """
 
+
 class HttpRouter:
     # ACB: Ugly as hell, but can't think a better way
+    def __init__(self):
+        self._bridge = None
+
     @property
     def bridge(self):
         return self._bridge
 
     @bridge.setter
-    def bridge(self,bridge):
+    def bridge(self, bridge):
         self._bridge = bridge
 
     # GET /internals/:app
-    def get_internal(self,path,headers,rfile):
+    def get_internal(self, path, headers, rfile):
         app_name = path.path.split("/")[2]
         try:
             res = {"value": self.bridge.getInternal(app_name)}
         except:
-            res = { "error": app_name+" doesn't exist" }
+            res = {"error": app_name + " doesn't exist"}
         return res
 
     # GET /exteransl/:app
-    def get_external(self,path,headers,rfile):
+    def get_external(self, path, headers, rfile):
         app_name = path.path.split("/")[2]
         try:
             res = {"value": self.bridge.getExternal(app_name)}
         except:
-            res = { "error": app_name+" doesn't exist" }
+            res = {"error": app_name + " doesn't exist"}
         return res
 
-    def get_apps(self,path,header,rfile):
+    def get_apps(self, path, header, rfile):
         apps = self.bridge.getApps()
         return apps
 
     # GET /apps/:app
-    def get_app(self,path,headers,rfile):
+    def get_app(self, path, headers, rfile):
         app_name = path.path.split("/")[2]
         try:
             app = self.bridge.getApp(app_name)
         except:
-            app = { "error": app_name+" doesn't exist" }
+            app = {"error": app_name + " doesn't exist"}
         return app
 
     # POST /apps/:app
-    def post_app(self,path,headers,rfile):
+    def post_app(self, path, headers, rfile):
         if "Content-Length" not in headers:
-            return { "Error": "Empty request" }
+            return {"Error": "Empty request"}
 
-        form = self._getContent(headers,rfile)
+        form = self._getContent(headers, rfile)
 
-        if "app_name" not in form or "url" not in form or "service_port" not in form or	"servers" not in form:
-            return { "Error": "You should post app_name, url, service_port and servers values" }
+        if "app_name" not in form or "url" not in form or "service_port" not in form or "servers" not in form:
+            return {"Error": "You should post app_name, url, service_port and servers values" + str(form)}
 
-        self.bridge.addStandaloneApp(form["app_name"],form["url"],form["service_port"],form["servers"].split(","))
+        self.bridge.addStandaloneApp(form["app_name"], form["url"], form["service_port"], form["servers"])
         conf = self.bridge.generateConfigContent()
         if self.bridge.master:
             self.bridge.saveConfig(conf)
@@ -717,10 +769,10 @@ class HttpRouter:
         else:
             if not self.bridge.masterUpdate():
                 print "ERROR UPDATING MASTER"
-        return { "success": True }
+        return {"success": True}
 
     # GET /apps/update
-    def apps_update(self,path,headers,rfile):
+    def apps_update(self, path, headers, rfile):
         conf = self.bridge.generateConfigContent()
         if self.bridge.master:
             self.bridge.saveConfig(conf)
@@ -728,32 +780,32 @@ class HttpRouter:
         else:
             if not self.bridge.masterUpdate():
                 print "ERROR UPDATING MASTER"
-        return { "success": True }
+        return {"success": True}
 
     # GET /marathon/update
-    def update(self,path,headers,rfile):
+    def update(self, path, headers, rfile):
         if "Content-Length" not in headers:
-            return { "Error": "Empty request" }
+            return {"Error": "Empty request"}
 
-        form = self._getContent(headers,rfile)
+        form = self._getContent(headers, rfile)
 
         if form["eventType"] == "deployment_step_success":
             conf = self.bridge.generateConfigContent()
             self.bridge.saveConfig(conf)
             self.bridge.cleanPids()
-        return { "success": True }
+        return {"success": True}
 
-    def _getContent(self,headers,rfile):
+    def _getContent(self, headers, rfile):
         length = int(headers["Content-Length"])
         data = rfile.read(length)
-        form = {}
-        if headers["Content-Type"] == "application/json; charset=UTF-8":
+        if "application/json" in headers["Content-Type"]:
             form = json.loads(data)
         else:
             form = {}
-            for k,v in urlparse.parse_qsl( data ):
+            for k, v in urlparse.parse_qsl(data):
                 form[k] = v
         return form
+
 
 class HttpHandler(BaseHTTPRequestHandler):
     routes = {
@@ -773,17 +825,18 @@ class HttpHandler(BaseHTTPRequestHandler):
 
     def doCommand(self, requestType):
         def search(dictionary, path):
-            result = []
             for key in dictionary:
-                if re.search(key,path):
+                if re.search(key, path):
                     return key
             return False
+
         try:
             path = urllib.unquote(self.path)
             parsed_path = urlparse.urlparse(self.path)
-            route_name = search(HttpHandler.routes,requestType + " " + path)
+            route_name = search(HttpHandler.routes, requestType + " " + path)
             if route_name:
-                reply = getattr(HttpHandler.router,HttpHandler.routes[route_name])(parsed_path,self.headers,self.rfile)
+                reply = getattr(HttpHandler.router, HttpHandler.routes[route_name])(parsed_path, self.headers,
+                                                                                    self.rfile)
                 self.send_response(200)
                 replyStr = json.dumps(reply)
                 self.send_header("Content-type", "application/json")
@@ -793,7 +846,7 @@ class HttpHandler(BaseHTTPRequestHandler):
                 self.wfile.write(replyStr)
             else:
                 self.send_error(404, "Command not found")
-        except Exception as e:
+        except:
             print traceback.format_exc()
             self.send_error(403, "Failed to process command")
 
@@ -821,12 +874,13 @@ class HttpHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', '0')
         self.end_headers()
 
-    def log_message(self,format,*args):
+    def log_message(self, format, *args):
         # trace here to see all the http
         return
 
+
 class HTTPServerDaemon(Daemon):
-    def run(self,zookeeper,port,master=False):
+    def run(self, zookeeper, port, master=False):
         # ACB: For some reason, I can't the bridge created on the other thread
         if zookeeper:
             kv = Zookeeper(zookeeper)
@@ -854,8 +908,9 @@ class HTTPServerDaemon(Daemon):
 Command manager
 """
 
+
 class CommandManager:
-    def __init__(self,bridge,args):
+    def __init__(self, bridge, args):
         self._bridge = bridge
         self._args = args
 
@@ -863,16 +918,16 @@ class CommandManager:
     def args(self):
         return self._args
 
-    def doCommand(self,command,*args):
-        method = getattr(self,command)
+    def doCommand(self, command, *args):
+        method = getattr(self, command)
         if not method:
-            raise ValueError("Command "+command+" doesn't exists")
+            raise ValueError("Command " + command + " doesn't exists")
 
         return method(*args)
 
     def start(self):
-        http_server = HTTPServerDaemon(self._args.http_pid_file,stdout=self._args.log_file, stderr=self._args.log_file)
-        http_server.start(self._args.zookeeper,self._args.port,self._bridge.master)
+        http_server = HTTPServerDaemon(self._args.http_pid_file, stdout=self._args.log_file, stderr=self._args.log_file)
+        http_server.start(self._args.zookeeper, self._args.port, self._bridge.master)
 
     def stop(self):
         http_server = HTTPServerDaemon(self._args.http_pid_file)
@@ -889,47 +944,48 @@ class CommandManager:
     def slave(self):
         self._bridge.registerSlave()
         ip = socket.gethostbyname(socket.gethostname())
-        self._bridge.addHostToApp("service-discovery",ip+":"+str(args.port))
+        self._bridge.addHostToApp("service-discovery", ip + ":" + str(args.port))
 
     def install(self):
         script_path = self._args.installation_folder + script
         try:
             os.makedirs(self._args.installation_folder)
         except OSError as e:
-            if(e.errno!=17): raise e
-        shutil.copyfile(script,script_path)
+            if e.errno != 17: raise e
+        shutil.copyfile(script, script_path)
         os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
         # Create all the dirtree structure in the key/value service
-        self._bridge.createDirtree(args.template_frontend,args.template_backend,args.template_tcp,args.template_general,args.subnet_dns,args.path_prefix,args.marathon,args.port)
+        self._bridge.createDirtree(args.template_frontend, args.template_backend, args.template_tcp,
+                                   args.template_general, args.subnet_dns, args.path_prefix, args.marathon, args.port)
 
         ip = socket.gethostbyname(socket.gethostname())
-        self._bridge.addStandaloneApp("service-discovery",False,"80",[ip+":"+str(args.port)])
+        self._bridge.addStandaloneApp("service-discovery", False, "80", [ip + ":" + str(args.port)])
 
         if self._args.marathon:
             marathon = self._args.marathon.split(",")[0]
             service_discovery = self._bridge.getInternal("service-discovery")
-            marathon_url = "http://" + marathon + "/v2/leader";
+            marathon_url = "http://" + marathon + "/v2/leader"
             response = urllib2.urlopen(marathon_url)
             content = json.loads(response.read())
 
-            leader_url = "http://" + content['leader'] + "/v2/eventSubscriptions?callbackUrl=";
-            callback_url = "http://" + service_discovery + "/marathon/update";
+            leader_url = "http://" + content['leader'] + "/v2/eventSubscriptions?callbackUrl="
+            callback_url = "http://" + service_discovery + "/marathon/update"
             print "calling", leader_url + urllib.quote_plus(callback_url)
             req = urllib2.Request(leader_url + urllib.quote_plus(callback_url))
             req.get_method = lambda: "POST"
             response = urllib2.urlopen(req)
             content = json.load(response)
             if "callbackUrl" not in content:
-                print "Error installing the marathon callback",content
+                print "Error installing the marathon callback", content
             try:
-                with open("/etc/marathon/conf/http_endpoints","w") as f:
+                with open("/etc/marathon/conf/http_endpoints", "w") as f:
                     f.write(callback_url)
             except:
                 raise EnvironmentError("Can't write config file, please check marathon installation.")
-            #subprocess.Popen(['service', 'marathon', 'restart'])
+                # subprocess.Popen(['service', 'marathon', 'restart'])
         if self._args.cron_job:
-            Cron.createCronJob("pegboard",self._cronContent(script_path))
+            Cron.createCronJob("pegboard", self._cronContent(script_path))
 
         self.update()
 
@@ -952,11 +1008,12 @@ class CommandManager:
             raise ValueError("You need to specify app name: --app-name name")
         print self._bridge.getExternal(self._args.app_name)
 
-    def _cronContent(self,script_path):
+    def _cronContent(self, script_path):
         zookeeper = ""
         if type(self._bridge.kv) == Zookeeper:
-            zookeeper = " --zookeeper "+self._bridge.kv.hosts
-        return "* * * * * root python "+script_path+zookeeper+" update >>/var/log/pegboard-cron.log 2>&1\n"
+            zookeeper = " --zookeeper " + self._bridge.kv.hosts
+        return "* * * * * root python " + script_path + zookeeper + " update >>/var/log/pegboard-cron.log 2>&1\n"
+
 
 if __name__ == "__main__":
     script_dir = "/usr/local/bin/"
@@ -965,10 +1022,10 @@ if __name__ == "__main__":
     parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts")
     parser.add_argument("--marathon", help="To use marathon, should pass the masters list comma separated")
     parser.add_argument("--http-pid-file", help="Pid file of the http daemon")
-    parser.add_argument("--installation-folder", help="Choose another installation folder, default "+script_dir)
+    parser.add_argument("--installation-folder", help="Choose another installation folder, default " + script_dir)
     parser.add_argument("--app-name", help="App name in which perform the action")
     parser.add_argument("--log-file", help="Log file location")
-    parser.add_argument("--port", help="Port of the web service",type=int)
+    parser.add_argument("--port", help="Port of the web service", type=int)
     parser.add_argument("--cron-job", help="Update using a cron job", action='store_true')
     parser.add_argument("--template-frontend", help="Template for http frontends")
     parser.add_argument("--template-backend", help="Template for http backends")
@@ -976,10 +1033,12 @@ if __name__ == "__main__":
     parser.add_argument("--template-general", help="Template for general configuration")
     parser.add_argument("--subnet-dns", help="Use a subnet dns record")
     parser.add_argument("--path-prefix", help="Use a path prefix")
-    parser.add_argument('action', choices=['update','install','slave','start','stop','restart','internal','external'])
+    parser.add_argument('action',
+                        choices=['update', 'install', 'slave', 'start', 'stop', 'restart', 'internal', 'external'])
     args = parser.parse_args()
 
-    if args.action == "install" and not (args.template_frontend and args.template_backend and args.template_tcp and args.template_general):
+    if args.action == "install" and not (
+                        args.template_frontend and args.template_backend and args.template_tcp and args.template_general):
         print "You need to specify the templates to use in the installation"
         sys.exit(1)
 
@@ -997,7 +1056,7 @@ if __name__ == "__main__":
     master = False
     try:
         master_host = kv.get(KeyManager.master)
-        master = master_host == socket.gethostbyname(socket.gethostname())+":"+str(args.port)
+        master = master_host == socket.gethostbyname(socket.gethostname()) + ":" + str(args.port)
     except:
         if args.action == "install": master = True
 
@@ -1009,7 +1068,7 @@ if __name__ == "__main__":
 
     bridge = Bridge(kv)
     bridge.master = master
-    commandManager = CommandManager(bridge,args)
+    commandManager = CommandManager(bridge, args)
 
     commandManager.doCommand(args.action)
 
