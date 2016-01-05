@@ -393,10 +393,13 @@ class Haproxy:
     @classmethod
     def readConfig(cls):
         try:
-            with open(cls.config_file, "r") as f:
-                content = f.read()
+            if os.path.isfile(cls.config_file):
+                with open(cls.config_file, "r") as f:
+                    content = f.read()
+            else:
+                content = ""
         except:
-            raise EnvironmentError("Can't write config file, please check haproxy installation.")
+            raise EnvironmentError("Can't read config file, please check haproxy installation.")
         return content
 
 
@@ -473,7 +476,7 @@ class Bridge:
 
     def addStandaloneApp(self, app_name, url, port, servers):
         if not url:
-            url = app_name + self._kv.get(KeyManager.subnet_dns)
+            url = app_name + "." + self._kv.get(KeyManager.subnet_dns)
         app_path = KeyManager.extra_services_directory + "/" + app_name
         service_port = self.portManager.new_port()
         if not service_port:
@@ -662,6 +665,7 @@ class Bridge:
 
     def saveConfig(self, content):
         if not master: return
+
         old = Haproxy.readConfig()
 
         if old != content:
@@ -1027,10 +1031,10 @@ if __name__ == "__main__":
     parser.add_argument("--log-file", help="Log file location")
     parser.add_argument("--port", help="Port of the web service", type=int)
     parser.add_argument("--cron-job", help="Update using a cron job", action='store_true')
-    parser.add_argument("--template-frontend", help="Template for http frontends")
-    parser.add_argument("--template-backend", help="Template for http backends")
-    parser.add_argument("--template-tcp", help="Template for tcp jobs")
-    parser.add_argument("--template-general", help="Template for general configuration")
+    parser.add_argument("--config-frontend", help="Configuration for http frontends")
+    parser.add_argument("--config-backend", help="Configuration for http backends")
+    parser.add_argument("--config-tcp", help="Configuration for tcp jobs")
+    parser.add_argument("--config-general", help="Configuration for general configuration")
     parser.add_argument("--subnet-dns", help="Use a subnet dns record")
     parser.add_argument("--path-prefix", help="Use a path prefix")
     parser.add_argument('action',

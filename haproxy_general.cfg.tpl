@@ -3,8 +3,8 @@ global
 daemon
 nbproc 2
 pidfile /var/run/haproxy-private.pid
-log 127.0.0.1 local0
-log 127.0.0.1 local1 notice
+log localhost local0
+log localhost local1 notice
 maxconn 2048
 tune.ssl.default-dh-param 2048
 
@@ -21,7 +21,7 @@ option forwardfor
 option http-server-close
 
 listen stats
-bind 10.10.0.126:9090
+bind localhost:9090
 balance
 mode http
 stats enable
