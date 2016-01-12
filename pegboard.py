@@ -960,8 +960,8 @@ class CommandManager:
         os.chmod(script_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
         # Create all the dirtree structure in the key/value service
-        self._bridge.createDirtree(args.template_frontend, args.template_backend, args.template_tcp,
-                                   args.template_general, args.subnet_dns, args.path_prefix, args.marathon, args.port)
+        self._bridge.createDirtree(args.config_frontend, args.config_backend, args.config_tcp,
+                                   args.config_general, args.subnet_dns, args.path_prefix, args.marathon, args.port)
 
         ip = socket.gethostbyname(socket.gethostname())
         self._bridge.addStandaloneApp("service-discovery", False, "80", [ip + ":" + str(args.port)])
@@ -1042,8 +1042,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.action == "install" and not (
-                        args.template_frontend and args.template_backend and args.template_tcp and args.template_general):
-        print "You need to specify the templates to use in the installation"
+                        args.config_frontend and args.config_backend and args.config_tcp and args.config_general):
+        print "You need to specify the config templates to use in the installation"
         sys.exit(1)
 
     if not args.installation_folder:
