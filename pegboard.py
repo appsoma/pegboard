@@ -808,6 +808,8 @@ class HttpRouter:
             form = {}
             for k, v in urlparse.parse_qsl(data):
                 form[k] = v
+        if "servers" in form and type(form['servers']) not in (tuple, list):
+            form['servers'] = form['servers'].split(',')
         return form
 
 
