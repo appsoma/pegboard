@@ -507,8 +507,9 @@ class Bridge:
             response = None
             i = 0
             while response is None and i < masters.length:
-                marathon_url = "http://" + masters[i++] + "/v2/leader"
+                marathon_url = "http://" + masters[i] + "/v2/leader"
                 response = urllib2.urlopen(marathon_url)
+                i += 1
 
             if response is None:
                 raise Exception("No leader found from list of marathon masters: ", str(masters))
