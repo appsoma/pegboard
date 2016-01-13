@@ -663,7 +663,7 @@ class Bridge:
                 "frontend internal-" + app_name,
                 "bind 0.0.0.0:" + str(service_port),
                 "mode http",
-                "default_backend srvs_" + app_name
+                "default_backend srvs_internal_" + app_name
             ]
 
             self._saveEndpoints(app_name, socket.gethostbyname(socket.gethostname()) + ":" + str(service_port),
@@ -987,7 +987,6 @@ class CommandManager:
 
             leader_url = "http://" + content['leader'] + "/v2/eventSubscriptions?callbackUrl="
             callback_url = "http://" + service_discovery + "/marathon/update"
-            print "calling", leader_url + urllib.quote_plus(callback_url)
             req = urllib2.Request(leader_url + urllib.quote_plus(callback_url))
             req.get_method = lambda: "POST"
             response = urllib2.urlopen(req)
