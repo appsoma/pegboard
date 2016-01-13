@@ -504,11 +504,21 @@ class Bridge:
 
         if not app:
             masters = self._kv.get(KeyManager.marathon).split("\n")
-            for master in masters:
-                req = urllib2.Request("http://" + master + "/v2/apps/" + app_name + "?embed=apps.tasks")
-                response = json.loads(urllib2.urlopen(req).read())["app"]
-                if "app" in response:
-                    return response["app"]
+            response = None
+            i = 0
+            while response is None and i < masters.length:
+                marathon_url = "http://" + masters[i++] + "/v2/leader"
+                response = urllib2.urlopen(marathon_url)
+
+            if response is None:
+                raise Exception("No leader found from list of marathon masters: ", str(masters))
+
+            content = json.loads(response.read())
+            leader_url = "http://" + content['leader'] + "/v2/apps/"
+            req = urllib2.Request(leader_url + app_name + "?embed=apps.tasks")
+            response = json.loads(urllib2.urlopen(req).read())["app"]
+            if "app" in response:
+                return response["app"]
         if app:
             app = json.loads(app)
 
@@ -554,7 +564,7 @@ class Bridge:
                     if i in http_ports and service_name not in http_apps:
                         http_apps[service_name] = {
                             "strip_path": False,
-                            "url": app_name + self._kv.get(KeyManager.subnet_dns),
+                            "url": app_name + "." + self._kv.get(KeyManager.subnet_dns),
                             "app_name": service_name,
                             "marathon": True
                         }
@@ -792,7 +802,7 @@ class HttpRouter:
             return {"Error": "Empty request"}
 
         form = self._getContent(headers, rfile)
-
+        print ("FORM")
         if form["eventType"] == "deployment_step_success":
             conf = self.bridge.generateConfigContent()
             self.bridge.saveConfig(conf)
