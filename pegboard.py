@@ -384,6 +384,7 @@ class Haproxy:
 
     @classmethod
     def writeConfig(cls, content):
+        print cls.config_file
         try:
             with open(cls.config_file, "w") as f:
                 f.write(content)
@@ -432,6 +433,7 @@ Bridge management
 
 class Bridge:
     master = False
+    force_restart = True
 
     def __init__(self, keymanager):
         self._kv = keymanager
@@ -539,54 +541,57 @@ class Bridge:
         return apps
 
     def generateConfigContent(self):
-        masters = self._kv.get(KeyManager.marathon).split("\n")
-
         apps = self.getApps()
 
         http_apps = apps
         tcp_apps = {}
         content = self.getConfigHeader().split("\n")
-        for master in masters:
-            req = urllib2.Request("http://" + master + "/v2/apps?embed=apps.tasks")
-            response = urllib2.urlopen(req)
-            marathon_apps = json.loads(response.read())["apps"]
-            for app in marathon_apps:
-                app_name = app["id"] if app["id"][0] != "/" else app["id"][1:]
+        try:
+		masters = self._kv.get(KeyManager.marathon).split("\n")
 
-                http_ports = []
-                if "HAPROXY_HTTP" in app["env"]:
-                    http_ports = map(int, app["env"]["HAPROXY_HTTP"].split(","))
+		for master in masters:
+		    req = urllib2.Request("http://" + master + "/v2/apps?embed=apps.tasks")
+		    response = urllib2.urlopen(req)
+		    marathon_apps = json.loads(response.read())["apps"]
+		    for app in marathon_apps:
+			app_name = app["id"] if app["id"][0] != "/" else app["id"][1:]
 
-                for i in range(len(app["ports"])):
-                    service_port = app["ports"][i]
-                    service_name = app_name + "-" + str(service_port)
-                    servers = [t["host"] + ":" + str(t["ports"][i]) for t in app["tasks"]]
+			http_ports = []
+			if "HAPROXY_HTTP" in app["env"]:
+			    http_ports = map(int, app["env"]["HAPROXY_HTTP"].split(","))
 
-                    if i in http_ports and service_name not in http_apps:
-                        http_apps[service_name] = {
-                            "strip_path": False,
-                            "url": app_name + "." + self._kv.get(KeyManager.subnet_dns),
-                            "app_name": service_name,
-                            "marathon": True
-                        }
+			for i in range(len(app["ports"])):
+			    service_port = app["ports"][i]
+			    service_name = app_name + "-" + str(service_port)
+			    servers = [t["host"] + ":" + str(t["ports"][i]) for t in app["tasks"]]
 
-                    if service_name in http_apps:
-                        http_apps[service_name] = {"url": apps[service_name]["url"], "app_name": service_name,
-                                                   "service_port": str(service_port), "servers": servers,
-                                                   "strip_path": apps[service_name]["strip_path"] if "strip_path" in
-                                                                                                     apps[
-                                                                                                         service_name] else True,
-                                                   "internal_port": apps[service_name][
-                                                       "internal_port"] if "internal_port" in apps[
-                                                       service_name] else False, "marathon": True}
-                    else:
-                        if self.portManager.check_port(service_port):
-                            service_port = self.portManager.new_port()
-                            if not service_port:
-                                raise EnvironmentError("No open port available")
-                            self.portManager.choose_port(service_port)
-                        tcp_apps[app_name] = {"app_name": app_name + "-" + str(service_port),
-                                              "service_port": str(service_port), "servers": servers}
+			    if i in http_ports and service_name not in http_apps:
+				http_apps[service_name] = {
+				    "strip_path": False,
+				    "url": app_name + "." + self._kv.get(KeyManager.subnet_dns),
+				    "app_name": service_name,
+				    "marathon": True
+				}
+
+			    if service_name in http_apps:
+				http_apps[service_name] = {"url": apps[service_name]["url"], "app_name": service_name,
+							   "service_port": str(service_port), "servers": servers,
+							   "strip_path": apps[service_name]["strip_path"] if "strip_path" in
+													     apps[
+														 service_name] else True,
+							   "internal_port": apps[service_name][
+							       "internal_port"] if "internal_port" in apps[
+							       service_name] else False, "marathon": True}
+			    else:
+				if self.portManager.check_port(service_port):
+				    service_port = self.portManager.new_port()
+				    if not service_port:
+					raise EnvironmentError("No open port available")
+				    self.portManager.choose_port(service_port)
+				tcp_apps[app_name] = {"app_name": app_name + "-" + str(service_port),
+						      "service_port": str(service_port), "servers": servers}
+        except:
+            print "No marathon configured"
 
         content += self._tcpApps(tcp_apps) + self._httpApps(http_apps)
         return "\n".join(content)
@@ -679,12 +684,15 @@ class Bridge:
 
         old = Haproxy.readConfig()
 
+        print old
+        print content
         if old != content:
             Haproxy.writeConfig(content)
-            pids = Haproxy.restart()
-            valid_pids = json.loads(self._kv.get(KeyManager.haproxy_pids))
-            valid_pids += [int(pid) for pid in pids.split(" ") if pid != ""]
-            self._kv.set(KeyManager.haproxy_pids, json.dumps(valid_pids))
+            if(self.force_restart): 
+                pids = Haproxy.restart()
+                valid_pids = json.loads(self._kv.get(KeyManager.haproxy_pids))
+                valid_pids += [int(pid) for pid in pids.split(" ") if pid != ""]
+                self._kv.set(KeyManager.haproxy_pids, json.dumps(valid_pids))
 
     def cleanPids(self):
         if not master: return
@@ -897,7 +905,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 
 
 class HTTPServerDaemon(Daemon):
-    def run(self, zookeeper, port, master=False):
+    def run(self, zookeeper, port, master=False, force_restart=True):
         # ACB: For some reason, I can't the bridge created on the other thread
         if zookeeper:
             kv = Zookeeper(zookeeper)
@@ -917,6 +925,7 @@ class HTTPServerDaemon(Daemon):
 
         HttpHandler.router.bridge = Bridge(kv)
         HttpHandler.router.bridge.master = master
+        HttpHandler.router.bridge.force_restart = force_restart
         self._server = HTTPServer(('0.0.0.0', port), HttpHandler)
         self._server.serve_forever()
 
@@ -944,7 +953,7 @@ class CommandManager:
 
     def start(self):
         http_server = HTTPServerDaemon(self._args.http_pid_file, stdout=self._args.log_file, stderr=self._args.log_file)
-        http_server.start(self._args.zookeeper, self._args.port, self._bridge.master)
+        http_server.start(self._args.zookeeper, self._args.port, self._bridge.master, self._bridge.force_restart)
 
     def stop(self):
         http_server = HTTPServerDaemon(self._args.http_pid_file)
@@ -1035,6 +1044,9 @@ if __name__ == "__main__":
     script_dir = "/usr/local/bin/"
 
     parser = argparse.ArgumentParser(description='Bridge between marathon and haproxy')
+    parser.add_argument('--force-restart', dest='force_restart', action='store_true')
+    parser.add_argument('--no-force-restart', dest='force_restart', action='store_false')
+    parser.set_defaults(force_restart=True)
     parser.add_argument("--zookeeper", help="Use zookeeper instead of etcd, should pass a list of hosts")
     parser.add_argument("--marathon", help="To use marathon, should pass the masters list comma separated")
     parser.add_argument("--http-pid-file", help="Pid file of the http daemon")
@@ -1053,6 +1065,7 @@ if __name__ == "__main__":
                         choices=['update', 'install', 'slave', 'start', 'stop', 'restart', 'internal', 'external'])
     args = parser.parse_args()
 
+    print "ZOOKEEPER",args.zookeeper
     if args.action == "install" and not (
                         args.config_frontend and args.config_backend and args.config_tcp and args.config_general):
         print "You need to specify the config templates to use in the installation"
@@ -1084,6 +1097,8 @@ if __name__ == "__main__":
 
     bridge = Bridge(kv)
     bridge.master = master
+    bridge.force_restart = args.force_restart
+
     commandManager = CommandManager(bridge, args)
 
     commandManager.doCommand(args.action)
