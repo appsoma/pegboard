@@ -61,3 +61,10 @@ You can either:
 
 ### Configuration management
 An [Ansible role which installs HAProxy and uses Pegboard with zookeeper](https://github.com/appsoma/ansible-appsoma-mesos/tree/master/roles/ansible-haProxy) is available.
+
+### Use docker to run
+
+```
+sudo docker build -t agustincb/pegboard --no-cache --build-arg zookeeper=zookeeper.host:2181 --build-arg subnet_dns=$SUBNET_DNS .
+sudo docker run -dt -v /etc/haproxy/:/etc/haproxy/ -p  2288:2288 agustincb/pegboard
+```
